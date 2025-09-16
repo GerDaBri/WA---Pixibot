@@ -38,9 +38,9 @@ jobs:
           # If the commit is tagged with a version (e.g. "v1.0.0"),
           # release the app after building
           release: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          
-          # Use specific CI build script (only electron-builder, no webpack)
-          build_script_name: build:ci
-          
-          # Skip the build step since we already built React
-          skip_build: false
+
+          # Skip npm build script to avoid duplication
+          skip_build: true
+
+          # Use electron-builder directly with publish flag
+          args: --publish=always

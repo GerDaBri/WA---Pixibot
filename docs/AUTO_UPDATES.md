@@ -10,9 +10,10 @@
 ### 1. GitHub Actions Workflow (Optimizado)
 - **Archivo**: `.github/workflows/build.yml`
 - **Node.js**: Versión 20 (resuelve warnings de dependencias)
-- **Build Process**: Separado en pasos para evitar duplicación
+- **Build Process**: Optimizado para evitar duplicación
   1. Build React app (`npm run webpack-build`)
-  2. Build Electron app (`electron-builder` directo)
+  2. Build Electron app directo (`electron-builder --publish=always`)
+- **Configuración**: `skip_build: true` + `args: --publish=always`
 - **Trigger**: Push de tags que empiecen con `v` (ej: `v1.0.2`)
 - **Acción**: Construye y publica automáticamente en GitHub Releases
 
@@ -104,6 +105,11 @@ git push origin v1.0.2
 ### Error "npm ci" en GitHub Actions
 - Asegurar que `package-lock.json` esté commiteado
 - Si falta, ejecutar `npm install` localmente y commitear el archivo generado
+
+### Doble construcción (build duplication)
+- **Problema**: electron-builder ejecuta automáticamente el script `build` del package.json
+- **Solución**: Usar `skip_build: true` + `args: --publish=always`
+- **Resultado**: Solo una construcción completa sin duplicación
 
 ### Error de permisos
 1. Verificar que el repositorio sea público o tenga permisos correctos
