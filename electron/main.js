@@ -98,36 +98,77 @@ if (!gotTheLock) {
         createWindow();
 
         // --- Auto Updater Setup ---
+        // Configure auto-updater
+        autoUpdater.autoDownload = true;
+        autoUpdater.autoInstallOnAppQuit = true;
+        
         autoUpdater.on('checking-for-update', () => {
-            logToRenderer('Checking for update...');
+            logToRenderer('🔍 Checking for updates...');
         });
 
         autoUpdater.on('update-available', (info) => {
-            logToRenderer('Update available.', info);
+            logToRenderer('✅ Update available:', info.version);
+            if (mainWindow) {
+                mainWindow.webContents.send('update-available', info);
+            }
         });
 
         autoUpdater.on('update-not-available', (info) => {
-            logToRenderer('Update not available.', info);
+            logToRenderer('ℹ️ Update not available. Current version:', info.version);
         });
 
         autoUpdater.on('error', (err) => {
-            logToRenderer('Error in auto-updater.', err);
+            logToRenderer('❌ Error in auto-updater:', err.message);
+            if (mainWindow) {
+                mainWindow.webContents.send('update-error', err.message);
+            }
         });
 
         autoUpdater.on('download-progress', (progressObj) => {
-            let log_message = "Download speed: " + progressObj.bytesPerSecond;
-            log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
-            log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
+            const percent = Math.round(progressObj.percent);
+            const speed = Math.round(progressObj.bytesPerSecond / 1024);
+            let log_message = `📥 Downloading update: ${percent}% (${speed} KB/s)`;
+            log_message += ` - ${Math.round(progressObj.transferred / 1024 / 1024)}MB / ${Math.round(progressObj.total / 1024 / 1024)}MB`;
             logToRenderer(log_message);
+            
+            if (mainWindow) {
+                mainWindow.webContents.send('download-progress', {
+                    percent,
+                    speed,
+                    transferred: progressObj.transferred,
+                    total: progressObj.total
+                });
+            }
         });
 
         autoUpdater.on('update-downloaded', (info) => {
-            logToRenderer('Update downloaded', info);
-            autoUpdater.quitAndInstall();
+            logToRenderer('✅ Update downloaded successfully:', info.version);
+            if (mainWindow) {
+                mainWindow.webContents.send('update-downloaded', info);
+            }
+            
+            // Show dialog to user asking if they want to restart now
+            dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'Update Ready',
+                message: 'Update downloaded successfully!',
+                detail: `Version ${info.version} is ready to install. The application will restart to apply the update.`,
+                buttons: ['Restart Now', 'Later'],
+                defaultId: 0
+            }).then((result) => {
+                if (result.response === 0) {
+                    autoUpdater.quitAndInstall();
+                }
+            });
         });
 
-        // Check for updates
-        autoUpdater.checkForUpdates();
+        // Check for updates only in production
+        if (app.isPackaged) {
+            logToRenderer('🚀 Checking for updates in production mode...');
+            autoUpdater.checkForUpdatesAndNotify();
+        } else {
+            logToRenderer('🔧 Development mode - skipping update check');
+        }
 
         // Always initialize the client on startup, regardless of campaign state.
         // This ensures the client instance is created and listeners are set up.

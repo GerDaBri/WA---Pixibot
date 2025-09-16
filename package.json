@@ -7,6 +7,8 @@
     "start": "concurrently --kill-others \"npm run react-start\" \"wait-on http://localhost:3000 && electron .\"",
     "webpack-build": "webpack --mode production",
     "build": "npm run webpack-build && electron-builder",
+    "build:publish": "npm run webpack-build && electron-builder --publish=always",
+    "release": "node scripts/release.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -49,7 +51,12 @@
     "publish": {
       "provider": "github",
       "owner": "GerDaBri",
-      "repo": "WA---Pixibot"
+      "repo": "WA---Pixibot",
+      "releaseType": "release"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "devDependencies": {
