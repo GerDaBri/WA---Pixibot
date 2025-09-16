@@ -48,8 +48,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "tu-usuario",
-      "repo": "whatsapp-bot"
+      "owner": "GerDaBri",
+      "repo": "WA---Pixibot"
     }
   },
   "devDependencies": {
