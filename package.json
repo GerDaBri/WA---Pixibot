@@ -9,6 +9,7 @@
     "build": "npm run webpack-build && electron-builder",
     "build:publish": "npm run webpack-build && electron-builder --publish=always",
     "release": "node scripts/release.js",
+    "release:simple": "node scripts/simple-release.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

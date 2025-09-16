@@ -26,23 +26,42 @@
 
 ## 🚀 Cómo Crear un Release
 
-### Método 1: Script Automático (Recomendado)
+### Método 1: Script Simple (Recomendado)
+```bash
+# Usar versión actual
+npm run release:simple
+
+# O especificar nueva versión
+node scripts/simple-release.js 1.0.2
+```
+
+### Método 2: Script Interactivo
 ```bash
 npm run release
 ```
 
-### Método 2: Manual
+### Método 3: Manual
 ```bash
-# 1. Actualizar versión en package.json
-# 2. Commit y push
+# 1. Actualizar versión en package.json (opcional)
+# 2. Commit cambios si los hay
 git add .
-git commit -m "chore: bump version to 1.0.2"
-git push origin main
+git commit -m "chore: prepare release v1.0.2"
 
 # 3. Crear y push tag
 git tag v1.0.2
+git push origin main
 git push origin v1.0.2
 ```
+
+### ⚠️ Solución de Problemas Comunes
+
+**Error: "nothing to commit, working tree clean"**
+- Usa `npm run release:simple` en lugar de `npm run release`
+- O crea el tag manualmente: `git tag v1.0.2 && git push origin v1.0.2`
+
+**Error: "tag already exists"**
+- El script simple maneja esto automáticamente
+- O elimina manualmente: `git tag -d v1.0.2 && git push origin :refs/tags/v1.0.2`
 
 ## 📦 Proceso de Publicación
 
