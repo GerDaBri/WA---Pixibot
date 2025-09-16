@@ -1,0 +1,68 @@
+{
+  "name": "whatsapp-bot",
+  "version": "1.0.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "react-start": "webpack serve --config webpack.config.js",
+    "start": "concurrently --kill-others \"npm run react-start\" \"wait-on http://localhost:3000 && electron .\"",
+    "webpack-build": "webpack --mode production",
+    "build": "npm run webpack-build && electron-builder",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fluentui/react-components": "^9.69.0",
+    "concurrently": "^9.2.1",
+    "electron-store": "^10.1.0",
+    "electron-updater": "^6.6.2",
+    "find-chrome-bin": "^2.0.3",
+    "puppeteer": "^24.17.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "wait-on": "^8.0.4",
+    "whatsapp-web.js": "^1.34.1",
+    "xlsx": "^0.18.5"
+  },
+  "description": "A WhatsApp bot application.",
+  "build": {
+    "appId": "com.yourcompany.whatsappbot",
+    "productName": "Pixibot",
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "bot/**/*",
+      "assets/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "dist/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "tu-usuario",
+      "repo": "whatsapp-bot"
+    }
+  },
+  "devDependencies": {
+    "@babel/preset-react": "^7.27.1",
+    "babel-loader": "^10.0.0",
+    "css-loader": "^7.1.2",
+    "electron": "^37.4.0",
+    "electron-builder": "^26.0.12",
+    "file-loader": "^6.2.0",
+    "html-webpack-plugin": "^5.6.4",
+    "style-loader": "^4.0.0",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
+  }
+}

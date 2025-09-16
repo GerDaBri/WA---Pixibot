@@ -1,0 +1,25 @@
+/* src/styles/theme.css */
+:root {
+  /* Brand Colors */
+  --primary-color: #4CAF50; /* Green, reminiscent of WhatsApp */
+  --primary-dark-color: #388E3C;
+  --primary-light-color: #C8E6C9;
+  --accent-color: #25D366;
+
+  /* Text Colors */
+  --text-color-primary: #212121;
+  --text-color-secondary: #757575;
+  --text-color-light: #FFFFFF;
+
+  /* Background Colors */
+  --background-color: #F5F5F5;
+  --surface-color: #FFFFFF;
+
+  /* Fonts */
+  --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+  /* Spacing & Borders */
+  --spacing-unit: 8px;
+  --border-radius: 4px;
+
+}
