@@ -93,6 +93,11 @@ git push origin v1.0.2
 1. Verificar que el tag siga el formato `v*.*.*`
 2. Revisar logs en GitHub Actions
 3. Verificar que package.json tenga la versión correcta
+4. Asegurar que `package-lock.json` esté en el repositorio
+
+### Error "npm ci" en GitHub Actions
+- Asegurar que `package-lock.json` esté commiteado
+- Si falta, ejecutar `npm install` localmente y commitear el archivo generado
 
 ### Error de permisos
 1. Verificar que el repositorio sea público o tenga permisos correctos
