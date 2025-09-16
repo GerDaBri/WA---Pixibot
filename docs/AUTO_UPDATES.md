@@ -2,11 +2,17 @@
 
 ## Estado Actual
 ✅ **electron-updater configurado y funcionando**
+✅ **GitHub Actions optimizado** (sin doble build)
+✅ **Node.js 20** para compatibilidad con dependencias
 
 ## Configuración Implementada
 
-### 1. GitHub Actions Workflow
+### 1. GitHub Actions Workflow (Optimizado)
 - **Archivo**: `.github/workflows/build.yml`
+- **Node.js**: Versión 20 (resuelve warnings de dependencias)
+- **Build Process**: Separado en pasos para evitar duplicación
+  1. Build React app (`npm run webpack-build`)
+  2. Build Electron app (`electron-builder` directo)
 - **Trigger**: Push de tags que empiecen con `v` (ej: `v1.0.2`)
 - **Acción**: Construye y publica automáticamente en GitHub Releases
 
