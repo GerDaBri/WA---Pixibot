@@ -32,7 +32,7 @@ let campaignState = { ...initialCampaignState };
  * @param {function()} onDisconnected - Callback for when the client is disconnected.
  * @param {function(string)} onAuthFailure - Callback for authentication failure.
  */
-async function initializeClient(onQrCode, onClientReady, onDisconnected, onAuthFailure) {
+async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure) {
     console.log("initializeClient called.");
 
     // If initialization is already in progress, wait for it to complete.
@@ -76,7 +76,7 @@ async function initializeClient(onQrCode, onClientReady, onDisconnected, onAuthF
             console.log("Chrome executable found at:", executablePath);
 
             client = new Client({
-                authStrategy: new LocalAuth({ clientId: 'new_client' }),
+                authStrategy: new LocalAuth({ clientId: 'new_client', dataPath }),
                 puppeteer: {
                 executablePath,
                 headless: true,
@@ -125,7 +125,7 @@ async function initializeClient(onQrCode, onClientReady, onDisconnected, onAuthF
                 console.log("Attempting to re-initialize client after disconnect...");
                 try {
                     // Pass the same callbacks to maintain communication with main process
-                    await softLogoutAndReinitialize(onQrCode, onClientReady, onDisconnected, onAuthFailure);
+                    await softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure);
                     console.log("Client re-initialization after disconnect successful.");
                 } catch (reinitError) {
                     console.error("Failed to re-initialize client after disconnect:", reinitError.message);
@@ -270,7 +270,8 @@ function stopSending(campaignId, reason = 'user_request') {
         console.warn(`whatsapp-logic: Stop ignored. Campaign ID mismatch or process not active. (State: ${campaignState.status})`);
         return;
     }
-    console.log(`whatsapp-logic: Stopping sending process due to ${reason}...`);
+    console.log(`whatsapp-logic: Stopping sending process due to ${reason}...
+`);
     campaignState.status = 'stopping';
     if (campaignState.resumePromiseResolver) {
         campaignState.resumePromiseResolver();
@@ -570,7 +571,9 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
 
         if (campaignState.status !== 'stopping') {
             campaignState.status = 'finished';
-            const finalMessage = `🏁 CAMPAÑA FINALIZADA\n\n📊 Total de mensajes enviados: ${campaignState.sentCount}`;
+            const finalMessage = `🏁 CAMPAÑA FINALIZADA
+
+📊 Total de mensajes enviados: ${campaignState.sentCount}`;
             if (supervisorNumbers && supervisorNumbers.length > 0) {
                 for (const supNum of supervisorNumbers) {
                     await client.sendMessage(`${supNum}@c.us`, finalMessage);
@@ -616,7 +619,7 @@ async function waitForClientReady() {
  * Logs out the client without clearing the session folder, then reinitializes.
  * This allows for potential automatic re-login if session files are valid.
  */
-async function softLogoutAndReinitialize(onQrCode, onClientReady, onDisconnected, onAuthFailure) {
+async function softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure) {
     console.log("softLogoutAndReinitialize called.");
     if (client) {
         try {
@@ -632,7 +635,7 @@ async function softLogoutAndReinitialize(onQrCode, onClientReady, onDisconnected
     console.log("Client instance destroyed after soft logout.");
 
     // Now reinitialize the client
-    await initializeClient(onQrCode, onClientReady, onDisconnected, onAuthFailure);
+    await initializeClient(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure);
     console.log("Client reinitialized after soft logout.");
 }
 
@@ -662,7 +665,7 @@ async function destroyClientInstance() {
 /**
  * Logs out, destroys the client, and clears the session folder to allow for a new QR code.
  */
-async function logoutAndClearSession() {
+async function logoutAndClearSession(dataPath) {
     await destroyClientInstance(); // Use the new helper function
 
     // Add a small delay to ensure file handles are released
@@ -671,7 +674,7 @@ async function logoutAndClearSession() {
     // After ensuring the client is destroyed, delete the session folder
     try {
         // The path is relative to this file's location in /bot, so we go one level up.
-        const sessionPath = path.resolve(__dirname, '..', '.wwebjs_auth');
+        const sessionPath = dataPath;
         if (fs.existsSync(sessionPath)) {
             console.log(`Attempting to delete session folder: ${sessionPath}`);
             // Use fs.promises.rm for modern async/await syntax
@@ -683,7 +686,7 @@ async function logoutAndClearSession() {
     } catch (error) {
         console.error(`Error deleting session folder: ${error.message}`);
         // This error should be propagated to the UI to inform the user.
-        throw new Error(`Failed to delete session folder. Please try deleting it manually. Path: ${path.resolve(__dirname, '..', '.wwebjs_auth')}`);
+        throw new Error(`Failed to delete session folder. Please try deleting it manually. Path: ${dataPath}`);
     }
 }
 

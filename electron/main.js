@@ -43,6 +43,7 @@ if (!gotTheLock) {
     });
 
     const IMAGE_DIR = path.join(app.getPath('userData'), 'temp_images');
+    const SESSION_PATH = path.join(app.getPath('userData'), 'session');
 
     // --- Main Window Creation ---
     function createWindow() {
