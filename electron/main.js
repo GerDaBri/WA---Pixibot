@@ -75,8 +75,8 @@ if (!gotTheLock) {
             const { response } = await dialog.showMessageBox(mainWindow, {
                 type: 'question',
                 buttons: ['Yes', 'No'],
-                title: 'Confirm Exit',
-                message: 'Are you sure you want to exit?',
+                title: 'Confirmar salida',
+                message: '¿Esta seguro que desea salir?',
             });
 
             if (response === 0) {
@@ -147,18 +147,19 @@ if (!gotTheLock) {
             if (mainWindow) {
                 mainWindow.webContents.send('update-downloaded', info);
             }
-            
+
             // Show dialog to user asking if they want to restart now
             dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: 'Update Ready',
-                message: 'Update downloaded successfully!',
-                detail: `Version ${info.version} is ready to install. The application will restart to apply the update.`,
-                buttons: ['Restart Now', 'Later'],
+                type: 'question',
+                title: 'Actualización disponible',
+                message: '¡Actualización descargada con éxito!',
+                detail: `La versión ${info.version} está lista para instalarse. ¿Desea reiniciar la aplicación ahora para aplicar la actualización?`,
+                buttons: ['Yes', 'No'],
                 defaultId: 0
             }).then((result) => {
                 if (result.response === 0) {
-                    autoUpdater.quitAndInstall();
+                    app.isQuitting = true; // Prevent exit confirmation dialog
+                    autoUpdater.quitAndInstall(true); // Silent installation
                 }
             });
         });
@@ -174,6 +175,7 @@ if (!gotTheLock) {
         // Always initialize the client on startup, regardless of campaign state.
         // This ensures the client instance is created and listeners are set up.
         whatsappLogic.initializeClient(
+            SESSION_PATH,
             (qr) => {
                 logToRenderer('main.js: QR code data received from whatsapp-logic (app.whenReady).');
                 qrcode.toDataURL(qr, (err, url) => {
@@ -273,6 +275,7 @@ if (!gotTheLock) {
     ipcMain.handle('initialize-client', () => {
         logToRenderer('main.js: initialize-client IPC called. Re-initializing WhatsApp client...');
         whatsappLogic.initializeClient(
+            SESSION_PATH,
             (qr) => {
                 logToRenderer('main.js: QR code data received from whatsapp-logic (app.whenReady).');
                 qrcode.toDataURL(qr, (err, url) => {
@@ -345,6 +348,7 @@ if (!gotTheLock) {
                 whatsappLogic.stopSending(campaign.id, 'logout');
             }
             await whatsappLogic.softLogoutAndReinitialize(
+                SESSION_PATH,
                 (qr) => {
                     qrcode.toDataURL(qr, (err, url) => {
                         if (err) {
