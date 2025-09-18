@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     logout: () => ipcRenderer.invoke('logout'),
     forceQuitApp: () => ipcRenderer.invoke('forceQuitApp'),
 
+    // License management
+    loginUser: (email, password) => ipcRenderer.invoke('login-user', email, password),
+    checkLicenseStatus: () => ipcRenderer.invoke('check-license-status'),
+    resetLicenseData: () => ipcRenderer.invoke('reset-license-data'),
+    recalculateDaysRemaining: () => ipcRenderer.invoke('recalculate-days-remaining'),
+
     // File system
     openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
     openMediaDialog: () => ipcRenderer.invoke('open-media-dialog'),

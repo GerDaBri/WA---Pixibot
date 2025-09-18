@@ -7,6 +7,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const qrcode = require('qrcode');
 const Store = require('electron-store').default;
+const config = require('./config');
 const whatsappLogic = require('../bot/whatsapp-logic');
 
 let mainWindow;
@@ -379,6 +380,387 @@ if (!gotTheLock) {
         }
     });
 
+    // --- License Management Handlers ---
+
+    // Login user with server
+    ipcMain.handle('login-user', async (event, email, password) => {
+        try {
+            const http = require('http');
+            const https = require('https');
+            const serverUrl = config.serverUrl;
+
+            // Log which server we're connecting to
+            logToRenderer('main.js: Login attempt using server:', serverUrl, 'Mode:', config.isPackaged ? 'production (packaged)' : 'development (unpacked)');
+
+            const postData = JSON.stringify({ email, password });
+
+            return new Promise((resolve, reject) => {
+                // Choose HTTP or HTTPS based on server URL
+                const client = serverUrl.startsWith('https://') ? https : http;
+
+                const req = client.request(`${serverUrl}/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(postData)
+                    }
+                }, (res) => {
+                    let data = '';
+                    res.on('data', (chunk) => data += chunk);
+                    res.on('end', () => {
+                        logToRenderer('main.js: Login response received - Status:', res.statusCode, 'Content-Type:', res.headers['content-type'], 'Data length:', data.length);
+                        logToRenderer('main.js: Login response data (first 500 chars):', data.substring(0, 500));
+                        try {
+                            const response = JSON.parse(data);
+                            if (res.statusCode === 200) {
+                                // Validate that we have required data
+                                if (!response.token) {
+                                    logToRenderer('main.js: Login failed - no token in response');
+                                    resolve({ success: false, error: 'No token received from server' });
+                                    return;
+                                }
+
+                                if (!response.license) {
+                                    logToRenderer('main.js: Login failed - no license data in response');
+                                    logToRenderer('main.js: Full response object:', response);
+                                    resolve({
+                                        success: false,
+                                        error: 'No license data received from server',
+                                        reason: 'no_license_data'
+                                    });
+                                    return;
+                                }
+
+                                // Validate license status
+                                const licenseStatus = response.license.status;
+                                logToRenderer('main.js: Login license status:', licenseStatus);
+                                logToRenderer('main.js: Full license object:', response.license);
+
+                                if (licenseStatus === 'suspended') {
+                                    logToRenderer('main.js: Login blocked - license suspended');
+                                    resolve({
+                                        success: false,
+                                        error: 'Licencia suspendida',
+                                        reason: 'suspended'
+                                    });
+                                    return;
+                                }
+
+                                if (licenseStatus === 'expired') {
+                                    logToRenderer('main.js: Login blocked - license expired');
+                                    resolve({
+                                        success: false,
+                                        error: 'Licencia expirada',
+                                        reason: 'expired'
+                                    });
+                                    return;
+                                }
+
+                                if (licenseStatus !== 'active') {
+                                    logToRenderer('main.js: Login blocked - invalid license status:', licenseStatus);
+                                    resolve({
+                                        success: false,
+                                        error: 'Estado de licencia inválido',
+                                        reason: 'invalid_status'
+                                    });
+                                    return;
+                                }
+
+                                // Calculate days remaining for login response
+                                let loginDaysRemaining = response.license.days_remaining;
+                                if (loginDaysRemaining === undefined || loginDaysRemaining === null) {
+                                    const currentTime = Math.floor(Date.now() / 1000);
+                                    // Parse date string properly - handle format "2025-09-18 13:54:02"
+                                    const endDateStr = response.license.end_date.replace(' ', 'T'); // Convert to ISO format
+                                    const endTime = new Date(endDateStr).getTime() / 1000;
+
+                                    // Calculate days remaining more accurately - use floor instead of ceil
+                                    const timeDiff = endTime - currentTime;
+                                    loginDaysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
+
+                                    logToRenderer('main.js: Login - calculated days remaining:', loginDaysRemaining, 'currentTime:', currentTime, 'endTime:', endTime, 'timeDiff:', timeDiff);
+                                } else {
+                                    logToRenderer('main.js: Login - server provided days remaining:', loginDaysRemaining);
+                                }
+
+                                // Store token, license and user data locally with fresh days_remaining
+                                const licenseStore = new Store({ name: 'license-data' });
+                                const licenseToStore = { ...response.license, days_remaining: loginDaysRemaining };
+                                logToRenderer('main.js: Storing login data - token:', !!response.token, 'license status:', response.license.status, 'days remaining:', loginDaysRemaining);
+                                licenseStore.set('auth_token', response.token);
+                                licenseStore.set('license', licenseToStore);
+                                licenseStore.set('user', response.user);
+                                licenseStore.set('server_time', response.server_time);
+                                licenseStore.set('last_check', Date.now());
+                                logToRenderer('main.js: Login data stored successfully with fresh days_remaining');
+
+                                // Return response with calculated days_remaining
+                                const loginResponse = {
+                                    ...response,
+                                    license: { ...response.license, days_remaining: loginDaysRemaining }
+                                };
+                                resolve({ success: true, ...loginResponse });
+                            } else {
+                                logToRenderer('main.js: Login failed with response:', response);
+                                resolve({ success: false, error: response.error });
+                            }
+                        } catch (e) {
+                            logToRenderer('main.js: Login failed - invalid JSON response:', e.message);
+                            logToRenderer('main.js: Raw response data that failed to parse:', data);
+                            resolve({ success: false, error: 'Invalid response from server' });
+                        }
+                    });
+                });
+
+                req.on('error', (err) => {
+                    logToRenderer('main.js: Login request failed with error:', err.message, 'Code:', err.code);
+                    resolve({ success: false, error: 'Connection failed' });
+                });
+
+                req.write(postData);
+                req.end();
+            });
+        } catch (error) {
+            return { success: false, error: 'Internal error' };
+        }
+    });
+
+    // Check license status
+    ipcMain.handle('check-license-status', async () => {
+        try {
+            const licenseStore = new Store({ name: 'license-data' });
+            const token = licenseStore.get('auth_token');
+            const cachedLicense = licenseStore.get('license');
+            const serverTime = licenseStore.get('server_time');
+            const lastCheck = licenseStore.get('last_check');
+
+            // No token or no license data stored
+            if (!token) {
+                return {
+                    valid: false,
+                    reason: 'no_license',
+                    message: 'Verifique sus credenciales para acceder'
+                };
+            }
+
+            if (!cachedLicense) {
+                return {
+                    valid: false,
+                    reason: 'no_license_data',
+                    message: 'Contacte al administrador para activar su licencia'
+                };
+            }
+
+            // Check if we need to refresh from server (every 7 days)
+            const needsRefresh = !lastCheck || (Date.now() - lastCheck) > config.licenseCheckInterval;
+            logToRenderer('main.js: License check - needsRefresh:', needsRefresh, 'lastCheck:', lastCheck, 'interval:', config.licenseCheckInterval);
+
+            if (needsRefresh) {
+                // Refresh from server
+                console.log('main.js: License check needs refresh, making server request');
+                const http = require('http');
+                const https = require('https');
+                const serverUrl = config.serverUrl;
+                const serverRequestStart = Date.now();
+
+                return new Promise((resolve, reject) => {
+                    // Choose HTTP or HTTPS based on server URL
+                    const client = serverUrl.startsWith('https://') ? https : http;
+
+                    const req = client.request(`${serverUrl}/check_license`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    }, (res) => {
+                        const serverResponseStart = Date.now();
+                        console.log(`main.js: Server request initiated, waiting for response (request time: ${serverResponseStart - serverRequestStart}ms)`);
+                        let data = '';
+                        res.on('data', (chunk) => data += chunk);
+                        res.on('end', () => {
+                            const serverResponseEnd = Date.now();
+                            console.log(`main.js: Server response received, total time: ${serverResponseEnd - serverRequestStart}ms`);
+                            try {
+                                const response = JSON.parse(data);
+                                if (res.statusCode === 200 && response.valid && response.license) {
+                                    // Validate license status
+                                    const licenseStatus = response.license.status;
+
+                                    // Handle new response format with detailed license info
+                                    const currentLicenseStatus = response.license?.status;
+                                    const isExpired = response.license?.is_expired || false;
+
+                                    // Calculate days remaining if not provided by server
+                                    let daysRemaining = response.license?.days_remaining;
+                                    if (daysRemaining === undefined || daysRemaining === null) {
+                                        const currentTime = Math.floor(Date.now() / 1000);
+                                        // Parse date string properly - handle format "2025-09-18 13:54:02"
+                                        const endDateStr = response.license.end_date.replace(' ', 'T'); // Convert to ISO format
+                                        const endTime = new Date(endDateStr).getTime() / 1000;
+
+                                        // Calculate days remaining more accurately - use floor instead of ceil
+                                        const timeDiff = endTime - currentTime;
+                                        daysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
+
+                                        logToRenderer('main.js: License check - calculated days remaining locally:', daysRemaining, 'end_date:', response.license.end_date);
+                                    }
+    
+                                    if (currentLicenseStatus === 'active' && !isExpired) {
+                                        // Update cache with fresh calculated days_remaining
+                                        const licenseToStore = { ...response.license, days_remaining: daysRemaining };
+                                        licenseStore.set('license', licenseToStore);
+                                        licenseStore.set('user', response.user);
+                                        licenseStore.set('server_time', response.server_time);
+                                        licenseStore.set('last_check', Date.now());
+                                        logToRenderer('main.js: License check - stored fresh days_remaining:', daysRemaining);
+                                        resolve({
+                                            valid: true,
+                                            license: response.license,
+                                            user: response.user,
+                                            reason: 'active',
+                                            message: `Licencia válida - ${daysRemaining} días restantes`
+                                        });
+                                    } else if (currentLicenseStatus === 'suspended') {
+                                        resolve({
+                                            valid: false,
+                                            reason: 'suspended',
+                                            message: response.message || 'Licencia suspendida',
+                                            license: { ...response.license, days_remaining: daysRemaining },
+                                            user: response.user
+                                        });
+                                    } else if (currentLicenseStatus === 'expired' || isExpired) {
+                                        resolve({
+                                            valid: false,
+                                            reason: 'expired',
+                                            message: response.message || 'Licencia expirada',
+                                            license: { ...response.license, days_remaining: daysRemaining },
+                                            user: response.user
+                                        });
+                                    } else {
+                                        resolve({
+                                            valid: false,
+                                            reason: 'invalid_status',
+                                            message: response.message || 'Estado de licencia inválido',
+                                            license: { ...response.license, days_remaining: daysRemaining },
+                                            user: response.user
+                                        });
+                                    }
+                                } else {
+                                    resolve({
+                                        valid: false,
+                                        reason: 'server_invalid',
+                                        message: 'Respuesta inválida del servidor'
+                                    });
+                                }
+                            } catch (e) {
+                                // If server check fails, use cached license validation
+                                const validation = validateCachedLicense(cachedLicense, licenseStore);
+                                resolve(validation);
+                            }
+                        });
+                    });
+
+                    req.on('error', (err) => {
+                        // If connection fails, use cached license validation
+                        const validation = validateCachedLicense(cachedLicense, licenseStore);
+                        resolve(validation);
+                    });
+
+                    req.end();
+                });
+            } else {
+                // Use cached license validation but always recalculate days remaining
+                console.log('main.js: Using cached license validation (no refresh needed)');
+                const validation = validateCachedLicense(cachedLicense, licenseStore);
+
+                // Always recalculate days remaining to ensure it's current
+                if (validation.valid && validation.license) {
+                    const currentTime = Math.floor(Date.now() / 1000);
+                    const endDateStr = cachedLicense.end_date.replace(' ', 'T');
+                    const endTime = new Date(endDateStr).getTime() / 1000;
+                    const timeDiff = endTime - currentTime;
+                    const freshDaysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
+
+                    validation.license.days_remaining = freshDaysRemaining;
+                    logToRenderer('main.js: Refreshed cached days remaining:', freshDaysRemaining);
+                }
+
+                return validation;
+            }
+        } catch (error) {
+            logToRenderer('License check error:', error);
+            return {
+                valid: false,
+                reason: 'error',
+                message: 'Error al verificar licencia'
+            };
+        }
+    });
+
+    // Helper function to validate cached license
+    function validateCachedLicense(cachedLicense, licenseStore) {
+        if (!cachedLicense) {
+            return {
+                valid: false,
+                reason: 'no_license_data',
+                message: 'Contacte al administrador para activar su licencia'
+            };
+        }
+
+        const currentTime = Math.floor(Date.now() / 1000);
+        // Parse date string properly - handle format "2025-09-18 13:54:02"
+        const endDateStr = cachedLicense.end_date.replace(' ', 'T'); // Convert to ISO format
+        const endTime = new Date(endDateStr).getTime() / 1000;
+
+        // Calculate days remaining more accurately - use floor instead of ceil
+        let daysRemaining = cachedLicense.days_remaining;
+        if (!daysRemaining) {
+            const timeDiff = endTime - currentTime;
+            daysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
+        }
+
+        // Check license status first
+        const licenseStatus = cachedLicense.status;
+
+        if (licenseStatus === 'suspended') {
+            return {
+                valid: false,
+                reason: 'suspended',
+                message: 'Licencia suspendida',
+                license: cachedLicense,
+                user: licenseStore.get('user')
+            };
+        }
+
+        if (licenseStatus === 'expired' || cachedLicense.is_expired || currentTime >= endTime) {
+            return {
+                valid: false,
+                reason: 'expired',
+                message: 'Licencia expirada',
+                license: cachedLicense,
+                user: licenseStore.get('user')
+            };
+        }
+
+        if (licenseStatus === 'active' && currentTime < endTime) {
+            return {
+                valid: true,
+                license: cachedLicense,
+                user: licenseStore.get('user'),
+                reason: 'active',
+                message: `Licencia válida - ${daysRemaining} días restantes`
+            };
+        }
+
+        return {
+            valid: false,
+            reason: 'invalid_status',
+            message: 'Estado de licencia inválido',
+            license: cachedLicense,
+            user: licenseStore.get('user')
+        };
+    }
+
     // --- File System Handlers ---
 
     ipcMain.handle('open-file-dialog', async () => {
@@ -489,5 +871,66 @@ if (!gotTheLock) {
         }
         app.isQuitting = true;
         app.quit();
+    });
+
+    // Handler for resetting license data
+    ipcMain.handle('reset-license-data', () => {
+        console.log('main.js: Starting license data reset');
+        try {
+            const licenseStore = new Store({ name: 'license-data' });
+            const clearStart = Date.now();
+            licenseStore.clear();
+            const clearEnd = Date.now();
+            console.log(`main.js: License store cleared in ${clearEnd - clearStart}ms`);
+            logToRenderer('main.js: License data reset successfully');
+            return { success: true, message: 'License data reset successfully' };
+        } catch (error) {
+            console.log('main.js: Error during license data reset:', error);
+            logToRenderer('main.js: Error resetting license data:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Handler for recalculating days remaining in cached license
+    ipcMain.handle('recalculate-days-remaining', () => {
+        console.log('main.js: Starting days remaining recalculation');
+        try {
+            const licenseStore = new Store({ name: 'license-data' });
+            const cachedLicense = licenseStore.get('license');
+
+            if (!cachedLicense) {
+                return { success: false, error: 'No cached license data found' };
+            }
+
+            const currentTime = Math.floor(Date.now() / 1000);
+            // Parse date string properly - handle format "2025-09-18 13:54:02"
+            const endDateStr = cachedLicense.end_date.replace(' ', 'T'); // Convert to ISO format
+            const endTime = new Date(endDateStr).getTime() / 1000;
+
+            // Calculate days remaining more accurately
+            // Use floor instead of ceil to avoid off-by-one errors
+            const timeDiff = endTime - currentTime;
+            const daysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
+
+            logToRenderer('main.js: Recalculation details:', {
+                currentTime,
+                endTime,
+                timeDiff,
+                daysRemaining,
+                endDateStr
+            });
+
+            // Update cached license with calculated days_remaining
+            const updatedLicense = { ...cachedLicense, days_remaining: daysRemaining };
+            licenseStore.set('license', updatedLicense);
+
+            console.log(`main.js: Recalculated days remaining: ${daysRemaining}`);
+            logToRenderer('main.js: Days remaining recalculated successfully:', daysRemaining);
+            return { success: true, days_remaining: daysRemaining };
+        } catch (error) {
+            console.log('main.js: Error recalculating days remaining:', error);
+            logToRenderer('main.js: Error recalculating days remaining:', error);
+            return { success: false, error: error.message };
+        }
     });
 }
