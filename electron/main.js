@@ -7,6 +7,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const qrcode = require('qrcode');
 const Store = require('electron-store').default;
+const winston = require('winston');
 const config = require('./config');
 const whatsappLogic = require('../bot/whatsapp-logic');
 
@@ -27,12 +28,13 @@ if (!gotTheLock) {
     });
 
     // --- Centralized Logging ---
-    function logToRenderer(...args) {
+    function logToRenderer(level = 'info', ...args) {
         const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
         if (mainWindow && mainWindow.webContents) {
             mainWindow.webContents.send('log-message', message);
         }
         console.log(...args);
+        logger.log(level, message);
     }
 
     // --- Electron Store Setup ---
@@ -45,6 +47,22 @@ if (!gotTheLock) {
 
     const IMAGE_DIR = path.join(app.getPath('userData'), 'temp_images');
     const SESSION_PATH = path.join(app.getPath('userData'), 'session');
+    const LOGS_DIR = path.join(app.getPath('userData'), 'logs');
+
+    // --- Winston Logger Setup ---
+    const logger = winston.createLogger({
+        level: 'info',
+        format: winston.format.combine(
+            winston.format.timestamp(),
+            winston.format.printf(({ timestamp, level, message }) => {
+                return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+            })
+        ),
+        transports: [
+            new winston.transports.File({ filename: path.join(LOGS_DIR, 'app.log') }),
+            new winston.transports.Console()
+        ]
+    });
 
     // --- Main Window Creation ---
     function createWindow() {
@@ -85,7 +103,7 @@ if (!gotTheLock) {
                 if (campaign.id && campaign.status !== 'inactive') {
                     // Persist the final state before quitting
                     store.set('campaign', campaign);
-                    logToRenderer('main.js: Persisted campaign state on exit.', campaign);
+                    logToRenderer('info', 'main.js: Persisted campaign state on exit.', campaign);
                 }
                 //await whatsappLogic.destroyClientInstance();
                 app.isQuitting = true;
@@ -97,6 +115,7 @@ if (!gotTheLock) {
     // --- App Lifecycle Events ---
     app.whenReady().then(async () => {
         await fs.mkdir(IMAGE_DIR, { recursive: true });
+        await fs.mkdir(LOGS_DIR, { recursive: true });
         createWindow();
 
         // --- Auto Updater Setup ---
@@ -105,22 +124,22 @@ if (!gotTheLock) {
         autoUpdater.autoInstallOnAppQuit = true;
         
         autoUpdater.on('checking-for-update', () => {
-            logToRenderer('🔍 Checking for updates...');
+            logToRenderer('info', '🔍 Checking for updates...');
         });
 
         autoUpdater.on('update-available', (info) => {
-            logToRenderer('✅ Update available:', info.version);
+            logToRenderer('info', '✅ Update available:', info.version);
             if (mainWindow) {
                 mainWindow.webContents.send('update-available', info);
             }
         });
 
         autoUpdater.on('update-not-available', (info) => {
-            logToRenderer('ℹ️ Update not available. Current version:', info.version);
+            logToRenderer('info', 'ℹ️ Update not available. Current version:', info.version);
         });
 
         autoUpdater.on('error', (err) => {
-            logToRenderer('❌ Error in auto-updater:', err.message);
+            logToRenderer('error', '❌ Error in auto-updater:', err.message);
             if (mainWindow) {
                 mainWindow.webContents.send('update-error', err.message);
             }
@@ -131,7 +150,7 @@ if (!gotTheLock) {
             const speed = Math.round(progressObj.bytesPerSecond / 1024);
             let log_message = `📥 Downloading update: ${percent}% (${speed} KB/s)`;
             log_message += ` - ${Math.round(progressObj.transferred / 1024 / 1024)}MB / ${Math.round(progressObj.total / 1024 / 1024)}MB`;
-            logToRenderer(log_message);
+            logToRenderer('info', log_message);
             
             if (mainWindow) {
                 mainWindow.webContents.send('download-progress', {
@@ -144,7 +163,7 @@ if (!gotTheLock) {
         });
 
         autoUpdater.on('update-downloaded', (info) => {
-            logToRenderer('✅ Update downloaded successfully:', info.version);
+            logToRenderer('info', '✅ Update downloaded successfully:', info.version);
             if (mainWindow) {
                 mainWindow.webContents.send('update-downloaded', info);
             }
@@ -167,10 +186,10 @@ if (!gotTheLock) {
 
         // Check for updates only in production
         if (app.isPackaged) {
-            logToRenderer('🚀 Checking for updates in production mode...');
+            logToRenderer('info', '🚀 Checking for updates in production mode...');
             autoUpdater.checkForUpdatesAndNotify();
         } else {
-            logToRenderer('🔧 Development mode - skipping update check');
+            logToRenderer('info', '🔧 Development mode - skipping update check');
         }
 
         // Always initialize the client on startup, regardless of campaign state.
@@ -178,35 +197,43 @@ if (!gotTheLock) {
         whatsappLogic.initializeClient(
             SESSION_PATH,
             (qr) => {
-                logToRenderer('main.js: QR code data received from whatsapp-logic (app.whenReady).');
+                logToRenderer('info', 'main.js: QR code data received from whatsapp-logic (app.whenReady).');
                 qrcode.toDataURL(qr, (err, url) => {
                     if (err) {
-                        console.error('Error generating QR code data URL (app.whenReady):', err);
-                        logToRenderer('main.js: Error generating QR code data URL (app.whenReady).', err);
+                        logToRenderer('error', 'main.js: Error generating QR code data URL (initialize-client):', err);
                         if (mainWindow) mainWindow.webContents.send('qrcode', ''); // Send empty string on error
                         return;
                     }
-                    logToRenderer('main.js: QR code data URL generated (app.whenReady). Sending to renderer.');
+                    logToRenderer('info', 'main.js: QR code data URL generated (app.whenReady). Sending to renderer.');
                     if (mainWindow) mainWindow.webContents.send('qrcode', url);
                 });
             },
-            () => { if (mainWindow) mainWindow.webContents.send('ready'); },
+            () => {
+                logToRenderer('info', 'main.js: Client ready event - sending ready to renderer (app startup)');
+                if (mainWindow) {
+                    console.log("main.js: Sending 'ready' event to renderer (app startup)");
+                    mainWindow.webContents.send('ready');
+                } else {
+                    console.log("main.js: WARNING - mainWindow not available for ready event (app startup)");
+                }
+            },
             (reason) => {
                 const campaign = whatsappLogic.getCampaignStatus();
                 if (campaign.id && campaign.status !== 'inactive') {
                     store.set('campaign', campaign);
-                    logToRenderer('main.js: Persisted campaign state on disconnect.', campaign);
+                    logToRenderer('info', 'main.js: Persisted campaign state on disconnect.', campaign);
                 }
                 if (mainWindow) mainWindow.webContents.send('disconnected', reason);
             },
-            (msg) => { if (mainWindow) mainWindow.webContents.send('auth-failure', msg); }
+            (msg) => { if (mainWindow) mainWindow.webContents.send('auth-failure', msg); },
+            LOGS_DIR // Pass logs directory for logger initialization
         );
 
         // --- Robust Campaign Resumption on Startup ---
         const storedCampaign = store.get('campaign');
         if (storedCampaign && (storedCampaign.status === 'running' || storedCampaign.status === 'paused' || storedCampaign.status === 'stopped')) {
             if (storedCampaign.config && typeof storedCampaign.config.pausaCada !== 'undefined') {
-                logToRenderer('main.js: Detected a valid persisted campaign on startup.', storedCampaign);
+                logToRenderer('info', 'main.js: Detected a valid persisted campaign on startup.', storedCampaign);
                 whatsappLogic.restartSendingFromState(storedCampaign, (progress) => {
                     store.set('campaign', progress);
                     if (mainWindow) {
@@ -214,7 +241,7 @@ if (!gotTheLock) {
                     }
                 }, logToRenderer);
             } else {
-                logToRenderer('main.js: Detected corrupt or incomplete campaign state. Clearing state.');
+                logToRenderer('info', 'main.js: Detected corrupt or incomplete campaign state. Clearing state.');
                 store.set('campaign', null);
             }
         }
@@ -247,7 +274,7 @@ if (!gotTheLock) {
 
     // Save campaign configuration before starting
     ipcMain.handle('save-campaign-config', (event, config) => {
-        logToRenderer('main.js: Saving campaign config.', config);
+        logToRenderer('info', 'main.js: Saving campaign config.', config);
         const campaignToStore = {
             id: `campaign-${Date.now()}`,
             status: 'inactive',
@@ -274,44 +301,58 @@ if (!gotTheLock) {
 
     // IPC handler to re-initialize the client when requested from the renderer process
     ipcMain.handle('initialize-client', () => {
-        logToRenderer('main.js: initialize-client IPC called. Re-initializing WhatsApp client...');
+        logToRenderer('info', 'main.js: initialize-client IPC called. Re-initializing WhatsApp client...');
         whatsappLogic.initializeClient(
             SESSION_PATH,
             (qr) => {
-                logToRenderer('main.js: QR code data received from whatsapp-logic (app.whenReady).');
+                logToRenderer('info', 'main.js: QR code data received from whatsapp-logic (initialize-client IPC).');
                 qrcode.toDataURL(qr, (err, url) => {
                     if (err) {
-                        console.error('Error generating QR code data URL (app.whenReady):', err);
-                        logToRenderer('main.js: Error generating QR code data URL (app.whenReady).', err);
+                        logToRenderer('error', 'main.js: Error generating QR code data URL (initialize-client IPC):', err);
                         if (mainWindow) mainWindow.webContents.send('qrcode', ''); // Send empty string on error
                         return;
                     }
-                    logToRenderer('main.js: QR code data URL generated (app.whenReady). Sending to renderer.');
+                    logToRenderer('info', 'main.js: QR code data URL generated (initialize-client IPC). Sending to renderer.');
                     if (mainWindow) mainWindow.webContents.send('qrcode', url);
                 });
             },
-            () => { if (mainWindow) mainWindow.webContents.send('ready'); },
+            () => {
+                logToRenderer('info', 'main.js: Client ready event - sending ready to renderer (initialize-client IPC)');
+                if (mainWindow) {
+                    console.log("main.js: Sending 'ready' event to renderer (initialize-client IPC)");
+                    mainWindow.webContents.send('ready');
+                } else {
+                    console.log("main.js: WARNING - mainWindow not available for ready event (initialize-client IPC)");
+                }
+            },
             (reason) => {
                 const campaign = whatsappLogic.getCampaignStatus();
                 if (campaign.id && campaign.status !== 'inactive') {
                     store.set('campaign', campaign);
-                    logToRenderer('main.js: Persisted campaign state on disconnect.', campaign);
+                    logToRenderer('info', 'main.js: Persisted campaign state on disconnect.', campaign);
                 }
                 if (mainWindow) mainWindow.webContents.send('disconnected', reason);
             },
-            (msg) => { if (mainWindow) mainWindow.webContents.send('auth-failure', msg); }
+            (msg) => { if (mainWindow) mainWindow.webContents.send('auth-failure', msg); },
+            LOGS_DIR // Pass logs directory for logger initialization
         );
     });
 
     // Start a new campaign
     ipcMain.handle('start-sending', (event, config) => {
-        logToRenderer('main.js: start-sending called with config:', config);
-        whatsappLogic.startSending(config, (progress) => {
-            store.set('campaign', progress);
-            if (mainWindow) {
-                mainWindow.webContents.send('campaign-update', progress);
-            }
-        }, logToRenderer);
+        logToRenderer('info', 'main.js: start-sending IPC called with config:', config);
+        try {
+            whatsappLogic.startSending(config, (progress) => {
+                store.set('campaign', progress);
+                if (mainWindow) {
+                    mainWindow.webContents.send('campaign-update', progress);
+                }
+            }, logToRenderer);
+            logToRenderer('info', 'main.js: start-sending completed successfully');
+        } catch (error) {
+            logToRenderer('error', 'main.js: Error in start-sending:', error);
+            throw error;
+        }
     });
 
     // Pause the currently running campaign
@@ -334,10 +375,10 @@ if (!gotTheLock) {
 
     // Clear all campaign data
     ipcMain.handle('clear-campaign-state', () => {
-        logToRenderer('main.js: clear-campaign-state called.');
+        logToRenderer('info', 'main.js: clear-campaign-state called.');
         whatsappLogic.clearCampaign();
         store.set('campaign', null);
-        logToRenderer('main.js: Persisted campaign store cleared.');
+        logToRenderer('info', 'main.js: Persisted campaign store cleared.');
         return whatsappLogic.getCampaignStatus();
     });
 
@@ -360,22 +401,31 @@ if (!gotTheLock) {
                         if (mainWindow) mainWindow.webContents.send('qrcode', url);
                     });
                 },
-                () => { if (mainWindow) mainWindow.webContents.send('ready'); },
+                () => {
+                    logToRenderer('info', 'main.js: Client ready event - sending ready to renderer (logout)');
+                    if (mainWindow) {
+                        console.log("main.js: Sending 'ready' event to renderer (logout)");
+                        mainWindow.webContents.send('ready');
+                    } else {
+                        console.log("main.js: WARNING - mainWindow not available for ready event (logout)");
+                    }
+                },
                 (reason) => {
                     const campaign = whatsappLogic.getCampaignStatus();
                     if (campaign.id && campaign.status !== 'inactive') {
                         store.set('campaign', campaign);
-                        logToRenderer('main.js: Persisted campaign state on disconnect.', campaign);
+                        logToRenderer('info', 'main.js: Persisted campaign state on disconnect.', campaign);
                     }
                     if (mainWindow) mainWindow.webContents.send('disconnected', reason);
                 },
                 (msg) => {
                     if (mainWindow) mainWindow.webContents.send('auth-failure', msg);
-                }
+                },
+                LOGS_DIR // Pass logs directory for logger initialization
             );
             return { success: true };
         } catch (error) {
-            logToRenderer('Failed to logout and clear session:', error);
+            logToRenderer('error', 'Failed to logout and clear session:', error);
             return { success: false, error: error.message };
         }
     });
@@ -390,7 +440,7 @@ if (!gotTheLock) {
             const serverUrl = config.serverUrl;
 
             // Log which server we're connecting to
-            logToRenderer('main.js: Login attempt using server:', serverUrl, 'Mode:', config.isPackaged ? 'production (packaged)' : 'development (unpacked)');
+            logToRenderer('info', 'main.js: Login attempt using server:', serverUrl, 'Mode:', config.isPackaged ? 'production (packaged)' : 'development (unpacked)');
 
             const postData = JSON.stringify({ email, password });
 
@@ -408,21 +458,21 @@ if (!gotTheLock) {
                     let data = '';
                     res.on('data', (chunk) => data += chunk);
                     res.on('end', () => {
-                        logToRenderer('main.js: Login response received - Status:', res.statusCode, 'Content-Type:', res.headers['content-type'], 'Data length:', data.length);
-                        logToRenderer('main.js: Login response data (first 500 chars):', data.substring(0, 500));
+                        logToRenderer('info', 'main.js: Login response received - Status:', res.statusCode, 'Content-Type:', res.headers['content-type'], 'Data length:', data.length);
+                        logToRenderer('info', 'main.js: Login response data (first 500 chars):', data.substring(0, 500));
                         try {
                             const response = JSON.parse(data);
                             if (res.statusCode === 200) {
                                 // Validate that we have required data
                                 if (!response.token) {
-                                    logToRenderer('main.js: Login failed - no token in response');
+                                    logToRenderer('info', 'main.js: Login failed - no token in response');
                                     resolve({ success: false, error: 'No token received from server' });
                                     return;
                                 }
 
                                 if (!response.license) {
-                                    logToRenderer('main.js: Login failed - no license data in response');
-                                    logToRenderer('main.js: Full response object:', response);
+                                    logToRenderer('info', 'main.js: Login failed - no license data in response');
+                                    logToRenderer('info', 'main.js: Full response object:', response);
                                     resolve({
                                         success: false,
                                         error: 'No license data received from server',
@@ -433,11 +483,11 @@ if (!gotTheLock) {
 
                                 // Validate license status
                                 const licenseStatus = response.license.status;
-                                logToRenderer('main.js: Login license status:', licenseStatus);
-                                logToRenderer('main.js: Full license object:', response.license);
+                                logToRenderer('info', 'main.js: Login license status:', licenseStatus);
+                                logToRenderer('info', 'main.js: Full license object:', response.license);
 
                                 if (licenseStatus === 'suspended') {
-                                    logToRenderer('main.js: Login blocked - license suspended');
+                                    logToRenderer('info', 'main.js: Login blocked - license suspended');
                                     resolve({
                                         success: false,
                                         error: 'Licencia suspendida',
@@ -447,7 +497,7 @@ if (!gotTheLock) {
                                 }
 
                                 if (licenseStatus === 'expired') {
-                                    logToRenderer('main.js: Login blocked - license expired');
+                                    logToRenderer('info', 'main.js: Login blocked - license expired');
                                     resolve({
                                         success: false,
                                         error: 'Licencia expirada',
@@ -457,7 +507,7 @@ if (!gotTheLock) {
                                 }
 
                                 if (licenseStatus !== 'active') {
-                                    logToRenderer('main.js: Login blocked - invalid license status:', licenseStatus);
+                                    logToRenderer('info', 'main.js: Login blocked - invalid license status:', licenseStatus);
                                     resolve({
                                         success: false,
                                         error: 'Estado de licencia inválido',
@@ -478,21 +528,21 @@ if (!gotTheLock) {
                                     const timeDiff = endTime - currentTime;
                                     loginDaysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
 
-                                    logToRenderer('main.js: Login - calculated days remaining:', loginDaysRemaining, 'currentTime:', currentTime, 'endTime:', endTime, 'timeDiff:', timeDiff);
+                                    logToRenderer('info', 'main.js: Login - calculated days remaining:', loginDaysRemaining, 'currentTime:', currentTime, 'endTime:', endTime, 'timeDiff:', timeDiff);
                                 } else {
-                                    logToRenderer('main.js: Login - server provided days remaining:', loginDaysRemaining);
+                                    logToRenderer('info', 'main.js: Login - server provided days remaining:', loginDaysRemaining);
                                 }
 
                                 // Store token, license and user data locally with fresh days_remaining
                                 const licenseStore = new Store({ name: 'license-data' });
                                 const licenseToStore = { ...response.license, days_remaining: loginDaysRemaining };
-                                logToRenderer('main.js: Storing login data - token:', !!response.token, 'license status:', response.license.status, 'days remaining:', loginDaysRemaining);
+                                logToRenderer('info', 'main.js: Storing login data - token:', !!response.token, 'license status:', response.license.status, 'days remaining:', loginDaysRemaining);
                                 licenseStore.set('auth_token', response.token);
                                 licenseStore.set('license', licenseToStore);
                                 licenseStore.set('user', response.user);
                                 licenseStore.set('server_time', response.server_time);
                                 licenseStore.set('last_check', Date.now());
-                                logToRenderer('main.js: Login data stored successfully with fresh days_remaining');
+                                logToRenderer('info', 'main.js: Login data stored successfully with fresh days_remaining');
 
                                 // Return response with calculated days_remaining
                                 const loginResponse = {
@@ -501,19 +551,19 @@ if (!gotTheLock) {
                                 };
                                 resolve({ success: true, ...loginResponse });
                             } else {
-                                logToRenderer('main.js: Login failed with response:', response);
+                                logToRenderer('info', 'main.js: Login failed with response:', response);
                                 resolve({ success: false, error: response.error });
                             }
                         } catch (e) {
-                            logToRenderer('main.js: Login failed - invalid JSON response:', e.message);
-                            logToRenderer('main.js: Raw response data that failed to parse:', data);
+                            logToRenderer('info', 'main.js: Login failed - invalid JSON response:', e.message);
+                            logToRenderer('info', 'main.js: Raw response data that failed to parse:', data);
                             resolve({ success: false, error: 'Invalid response from server' });
                         }
                     });
                 });
 
                 req.on('error', (err) => {
-                    logToRenderer('main.js: Login request failed with error:', err.message, 'Code:', err.code);
+                    logToRenderer('info', 'main.js: Login request failed with error:', err.message, 'Code:', err.code);
                     resolve({ success: false, error: 'Connection failed' });
                 });
 
@@ -553,11 +603,11 @@ if (!gotTheLock) {
 
             // Check if we need to refresh from server (every 7 days)
             const needsRefresh = !lastCheck || (Date.now() - lastCheck) > config.licenseCheckInterval;
-            logToRenderer('main.js: License check - needsRefresh:', needsRefresh, 'lastCheck:', lastCheck, 'interval:', config.licenseCheckInterval);
+            logToRenderer('info', 'main.js: License check - needsRefresh:', needsRefresh, 'lastCheck:', lastCheck, 'interval:', config.licenseCheckInterval);
 
             if (needsRefresh) {
                 // Refresh from server
-                console.log('main.js: License check needs refresh, making server request');
+                logToRenderer('info', 'main.js: License check needs refresh, making server request');
                 const http = require('http');
                 const https = require('https');
                 const serverUrl = config.serverUrl;
@@ -574,12 +624,12 @@ if (!gotTheLock) {
                         }
                     }, (res) => {
                         const serverResponseStart = Date.now();
-                        console.log(`main.js: Server request initiated, waiting for response (request time: ${serverResponseStart - serverRequestStart}ms)`);
+                        logToRenderer('info', `main.js: Server request initiated, waiting for response (request time: ${serverResponseStart - serverRequestStart}ms)`);
                         let data = '';
                         res.on('data', (chunk) => data += chunk);
                         res.on('end', () => {
                             const serverResponseEnd = Date.now();
-                            console.log(`main.js: Server response received, total time: ${serverResponseEnd - serverRequestStart}ms`);
+                            logToRenderer('info', `main.js: Server response received, total time: ${serverResponseEnd - serverRequestStart}ms`);
                             try {
                                 const response = JSON.parse(data);
                                 if (res.statusCode === 200 && response.valid && response.license) {
@@ -602,7 +652,7 @@ if (!gotTheLock) {
                                         const timeDiff = endTime - currentTime;
                                         daysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
 
-                                        logToRenderer('main.js: License check - calculated days remaining locally:', daysRemaining, 'end_date:', response.license.end_date);
+                                        logToRenderer('info', 'main.js: License check - calculated days remaining locally:', daysRemaining, 'end_date:', response.license.end_date);
                                     }
     
                                     if (currentLicenseStatus === 'active' && !isExpired) {
@@ -612,7 +662,7 @@ if (!gotTheLock) {
                                         licenseStore.set('user', response.user);
                                         licenseStore.set('server_time', response.server_time);
                                         licenseStore.set('last_check', Date.now());
-                                        logToRenderer('main.js: License check - stored fresh days_remaining:', daysRemaining);
+                                        logToRenderer('info', 'main.js: License check - stored fresh days_remaining:', daysRemaining);
                                         resolve({
                                             valid: true,
                                             license: response.license,
@@ -670,7 +720,7 @@ if (!gotTheLock) {
                 });
             } else {
                 // Use cached license validation but always recalculate days remaining
-                console.log('main.js: Using cached license validation (no refresh needed)');
+                logToRenderer('info', 'main.js: Using cached license validation (no refresh needed)');
                 const validation = validateCachedLicense(cachedLicense, licenseStore);
 
                 // Always recalculate days remaining to ensure it's current
@@ -682,13 +732,13 @@ if (!gotTheLock) {
                     const freshDaysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
 
                     validation.license.days_remaining = freshDaysRemaining;
-                    logToRenderer('main.js: Refreshed cached days remaining:', freshDaysRemaining);
+                    logToRenderer('info', 'main.js: Refreshed cached days remaining:', freshDaysRemaining);
                 }
 
                 return validation;
             }
         } catch (error) {
-            logToRenderer('License check error:', error);
+            logToRenderer('error', 'License check error:', error);
             return {
                 valid: false,
                 reason: 'error',
@@ -785,7 +835,7 @@ if (!gotTheLock) {
             await fs.copyFile(originalPath, destinationPath);
             return destinationPath;
         } catch (error) {
-            logToRenderer('Failed to copy media:', error);
+            logToRenderer('error', 'Failed to copy media:', error);
             return null;
         }
     });
@@ -796,7 +846,7 @@ if (!gotTheLock) {
             logToRenderer(`main.js: Read file ${filePath}, size: ${fileContent.length} bytes.`);
             return fileContent.buffer;
         } catch (error) {
-            logToRenderer('Failed to read file content:', error);
+            logToRenderer('error', 'Failed to read file content:', error);
             return null;
         }
     });
@@ -812,7 +862,7 @@ if (!gotTheLock) {
             logToRenderer(`main.js: Successfully wrote ${buffer.length} bytes to ${targetPath}.`);
             return { success: true };
         } catch (error) {
-            logToRenderer('Failed to write Excel file:', error);
+            logToRenderer('error', 'Failed to write Excel file:', error);
             return { success: false, error: error.message };
         }
     });
@@ -832,7 +882,7 @@ if (!gotTheLock) {
             const headers = await whatsappLogic.getExcelHeaders(excelPathToUse);
             return { success: true, headers, path: excelPathToUse };
         } catch (error) {
-            logToRenderer('Failed to get Excel headers:', error);
+            logToRenderer('error', 'Failed to get Excel headers:', error);
             return { success: false, error: error.message };
         }
     });
@@ -852,7 +902,7 @@ if (!gotTheLock) {
             const firstRow = await whatsappLogic.getFirstExcelRow(excelPathToUse);
             return { success: true, firstRow };
         } catch (error) {
-            logToRenderer('Failed to get first Excel row:', error);
+            logToRenderer('error', 'Failed to get first Excel row:', error);
             return { success: false, error: error.message };
         }
     });
@@ -862,12 +912,17 @@ if (!gotTheLock) {
         return whatsappLogic.getClientStatus();
     });
 
+    // Handler for log messages from renderer
+    ipcMain.on('log-message', (event, message) => {
+        logToRenderer('info', message);
+    });
+
     // Handler for forcing the app to quit without confirmation
     ipcMain.handle('forceQuitApp', () => {
         const campaign = whatsappLogic.getCampaignStatus();
         if (campaign.id && campaign.status !== 'inactive') {
             store.set('campaign', campaign);
-            logToRenderer('main.js: Persisted campaign state on force quit.', campaign);
+            logToRenderer('info', 'main.js: Persisted campaign state on force quit.', campaign);
         }
         app.isQuitting = true;
         app.quit();
@@ -875,25 +930,25 @@ if (!gotTheLock) {
 
     // Handler for resetting license data
     ipcMain.handle('reset-license-data', () => {
-        console.log('main.js: Starting license data reset');
+        logToRenderer('info', 'main.js: Starting license data reset');
         try {
             const licenseStore = new Store({ name: 'license-data' });
             const clearStart = Date.now();
             licenseStore.clear();
             const clearEnd = Date.now();
-            console.log(`main.js: License store cleared in ${clearEnd - clearStart}ms`);
-            logToRenderer('main.js: License data reset successfully');
+            logToRenderer('info', `main.js: License store cleared in ${clearEnd - clearStart}ms`);
+            logToRenderer('info', 'main.js: License data reset successfully');
             return { success: true, message: 'License data reset successfully' };
         } catch (error) {
-            console.log('main.js: Error during license data reset:', error);
-            logToRenderer('main.js: Error resetting license data:', error);
+            logToRenderer('error', 'main.js: Error during license data reset:', error);
+            logToRenderer('error', 'main.js: Error resetting license data:', error);
             return { success: false, error: error.message };
         }
     });
 
     // Handler for recalculating days remaining in cached license
     ipcMain.handle('recalculate-days-remaining', () => {
-        console.log('main.js: Starting days remaining recalculation');
+        logToRenderer('info', 'main.js: Starting days remaining recalculation');
         try {
             const licenseStore = new Store({ name: 'license-data' });
             const cachedLicense = licenseStore.get('license');
@@ -912,7 +967,7 @@ if (!gotTheLock) {
             const timeDiff = endTime - currentTime;
             const daysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
 
-            logToRenderer('main.js: Recalculation details:', {
+            logToRenderer('info', 'main.js: Recalculation details:', {
                 currentTime,
                 endTime,
                 timeDiff,
@@ -924,12 +979,12 @@ if (!gotTheLock) {
             const updatedLicense = { ...cachedLicense, days_remaining: daysRemaining };
             licenseStore.set('license', updatedLicense);
 
-            console.log(`main.js: Recalculated days remaining: ${daysRemaining}`);
-            logToRenderer('main.js: Days remaining recalculated successfully:', daysRemaining);
+            logToRenderer('info', `main.js: Recalculated days remaining: ${daysRemaining}`);
+            logToRenderer('info', 'main.js: Days remaining recalculated successfully:', daysRemaining);
             return { success: true, days_remaining: daysRemaining };
         } catch (error) {
-            console.log('main.js: Error recalculating days remaining:', error);
-            logToRenderer('main.js: Error recalculating days remaining:', error);
+            logToRenderer('error', 'main.js: Error recalculating days remaining:', error);
+            logToRenderer('error', 'main.js: Error recalculating days remaining:', error);
             return { success: false, error: error.message };
         }
     });

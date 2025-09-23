@@ -71,6 +71,7 @@ function Step0_Login({ onLoginSuccess }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
         console.log('Step0_Login: Starting login process, setting loading to true');
+        console.log('Step0_Login: Login attempt started');
         setLoading(true);
         setError('');
         setMessage('');
@@ -83,6 +84,11 @@ function Step0_Login({ onLoginSuccess }) {
             const result = await window.electronAPI.loginUser(email, password);
             const loginEnd = Date.now();
             console.log(`Step0_Login: Login completed in ${loginEnd - loginStart}ms, result:`, result);
+            if (result.success) {
+                console.log('Step0_Login: Login successful');
+            } else {
+                console.log('Step0_Login: Login failed:', result.error);
+            }
 
             if (result.success) {
                 setMessage('Login successful!');

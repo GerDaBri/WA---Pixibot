@@ -3,11 +3,190 @@ const qrcode = require('qrcode-terminal');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const winston = require('winston');
+const os = require('os');
 
 let client = null;
 let clientReadyPromise = null;
 let resolveClientReady = null;
 let isClientInitializing = false;
+
+// Logger instance for whatsapp-logic
+let logger = null;
+
+// Initialize logger with the same configuration as main.js
+function initializeLogger(logsDir) {
+    if (!logger) {
+        logger = winston.createLogger({
+            level: 'info',
+            format: winston.format.combine(
+                winston.format.timestamp(),
+                winston.format.printf(({ timestamp, level, message }) => {
+                    return `${timestamp} [${level.toUpperCase()}] [whatsapp-logic]: ${message}`;
+                })
+            ),
+            transports: [
+                new winston.transports.File({ filename: path.join(logsDir, 'logic.log') }),
+                new winston.transports.Console()
+            ]
+        });
+    }
+    return logger;
+}
+
+// Robust Chrome detection with multiple fallbacks
+async function detectChromeExecutable() {
+    const logPrefix = 'Chrome Detection';
+    logger?.info(`${logPrefix}: Starting Chrome executable detection`);
+    
+    const detectionMethods = [
+        {
+            name: 'find-chrome-bin package',
+            detect: async () => {
+                try {
+                    const { findChrome } = await import('find-chrome-bin');
+                    const chromeInfo = await findChrome();
+                    return chromeInfo.executablePath;
+                } catch (error) {
+                    throw new Error(`find-chrome-bin failed: ${error.message}`);
+                }
+            }
+        },
+        {
+            name: 'System-specific paths',
+            detect: async () => {
+                const platform = os.platform();
+                const possiblePaths = [];
+                
+                if (platform === 'win32') {
+                    possiblePaths.push(
+                        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+                        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+                        path.join(os.homedir(), 'AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'),
+                        'C:\\Program Files\\Google\\Chrome Beta\\Application\\chrome.exe',
+                        'C:\\Program Files\\Google\\Chrome Dev\\Application\\chrome.exe'
+                    );
+                } else if (platform === 'darwin') {
+                    possiblePaths.push(
+                        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                        '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta',
+                        '/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev'
+                    );
+                } else {
+                    possiblePaths.push(
+                        '/usr/bin/google-chrome',
+                        '/usr/bin/google-chrome-stable',
+                        '/usr/bin/google-chrome-beta',
+                        '/usr/bin/chromium-browser',
+                        '/usr/bin/chromium',
+                        '/snap/bin/chromium'
+                    );
+                }
+                
+                for (const chromePath of possiblePaths) {
+                    try {
+                        await fs.promises.access(chromePath, fs.constants.F_OK | fs.constants.X_OK);
+                        logger?.info(`${logPrefix}: Found Chrome at system path: ${chromePath}`);
+                        return chromePath;
+                    } catch (error) {
+                        // Continue to next path
+                    }
+                }
+                
+                throw new Error('No Chrome executable found in system paths');
+            }
+        },
+        {
+            name: 'Puppeteer bundled Chromium',
+            detect: async () => {
+                try {
+                    const puppeteer = require('puppeteer');
+                    const executablePath = puppeteer.executablePath();
+                    await fs.promises.access(executablePath, fs.constants.F_OK | fs.constants.X_OK);
+                    logger?.info(`${logPrefix}: Using Puppeteer bundled Chromium: ${executablePath}`);
+                    return executablePath;
+                } catch (error) {
+                    throw new Error(`Puppeteer Chromium not available: ${error.message}`);
+                }
+            }
+        }
+    ];
+    
+    let lastError = null;
+    
+    for (const method of detectionMethods) {
+        try {
+            logger?.info(`${logPrefix}: Trying method: ${method.name}`);
+            const executablePath = await method.detect();
+            
+            // Validate the executable
+            try {
+                await fs.promises.access(executablePath, fs.constants.F_OK | fs.constants.X_OK);
+                logger?.info(`${logPrefix}: Successfully detected Chrome executable: ${executablePath}`);
+                return executablePath;
+            } catch (accessError) {
+                throw new Error(`Path not accessible: ${accessError.message}`);
+            }
+            
+        } catch (error) {
+            lastError = error;
+            logger?.warn(`${logPrefix}: Method '${method.name}' failed: ${error.message}`);
+        }
+    }
+    
+    // If all methods failed, throw comprehensive error
+    const errorMessage = `Failed to detect Chrome executable. Last error: ${lastError?.message || 'Unknown error'}`;
+    logger?.error(`${logPrefix}: ${errorMessage}`);
+    throw new Error(errorMessage);
+}
+
+// Enhanced client creation with detailed logging
+async function createWhatsAppClient(dataPath, executablePath) {
+    const logPrefix = 'Client Creation';
+    logger?.info(`${logPrefix}: Creating WhatsApp client with Chrome path: ${executablePath}`);
+    logger?.info(`${logPrefix}: Session data path: ${dataPath}`);
+    
+    try {
+        const clientConfig = {
+            authStrategy: new LocalAuth({ clientId: 'new_client', dataPath }),
+            puppeteer: {
+                executablePath,
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu',
+                    '--disable-site-isolation-trials',
+                    '--disable-gpu-sandbox',
+                    '--disable-software-rasterizer',
+                    '--shm-size=1gb',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor'
+                ],
+                timeout: 60000,
+                protocolTimeout: 60000
+            }
+        };
+        
+        logger?.info(`${logPrefix}: Client configuration prepared`);
+        logger?.info(`${logPrefix}: Puppeteer args: ${JSON.stringify(clientConfig.puppeteer.args)}`);
+        
+        const newClient = new Client(clientConfig);
+        logger?.info(`${logPrefix}: Client instance created successfully`);
+        
+        return newClient;
+        
+    } catch (error) {
+        const errorMessage = `Failed to create WhatsApp client: ${error.message}`;
+        logger?.error(`${logPrefix}: ${errorMessage}`);
+        logger?.error(`${logPrefix}: Error stack: ${error.stack}`);
+        throw new Error(errorMessage);
+    }
+}
 
 // --- Start of Centralized Campaign State ---
 const initialCampaignState = {
@@ -26,24 +205,42 @@ let campaignState = { ...initialCampaignState };
 
 
 /**
- * Initializes the WhatsApp client.
+ * Initializes the WhatsApp client with robust error handling and comprehensive logging.
+ * @param {string} dataPath - Path for session data storage
  * @param {function(string)} onQrCode - Callback for when a QR code is generated.
  * @param {function()} onClientReady - Callback for when the client is ready.
  * @param {function()} onDisconnected - Callback for when the client is disconnected.
  * @param {function(string)} onAuthFailure - Callback for authentication failure.
+ * @param {string} logsDir - Directory for log files (optional, for logger initialization)
  */
-async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure) {
+async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir = null) {
+    const logPrefix = 'Client Initialization';
+    
+    // Initialize logger if logsDir is provided
+    if (logsDir && !logger) {
+        try {
+            initializeLogger(logsDir);
+            logger?.info(`${logPrefix}: Logger initialized with logs directory: ${logsDir}`);
+        } catch (loggerError) {
+            console.error(`Failed to initialize logger: ${loggerError.message}`);
+        }
+    }
+    
+    logger?.info(`${logPrefix}: initializeClient called with dataPath: ${dataPath}`);
     console.log("initializeClient called.");
 
     // If initialization is already in progress, wait for it to complete.
     if (isClientInitializing) {
+        logger?.info(`${logPrefix}: Client initialization already in progress. Waiting for completion.`);
         console.log("Client initialization already in progress. Waiting for it to complete.");
         if (clientReadyPromise) {
             try {
                 await clientReadyPromise;
+                logger?.info(`${logPrefix}: Existing client initialization completed successfully.`);
                 console.log("Existing client initialization completed successfully.");
                 if (onClientReady) onClientReady();
             } catch (e) {
+                logger?.error(`${logPrefix}: Ongoing client initialization failed: ${e.message}`);
                 console.error("Ongoing client initialization failed:", e.message);
                 if (onAuthFailure) onAuthFailure(e.message);
             }
@@ -53,11 +250,13 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
 
     // If client is already initialized and ready, skip re-initialization.
     if (client && client.info) {
+        logger?.info(`${logPrefix}: Client already ready, skipping re-initialization.`);
         console.log("Client already ready, skipping re-initialization.");
         if (onClientReady) onClientReady();
         return;
     }
 
+    logger?.info(`${logPrefix}: Starting new client initialization process...`);
     console.log("Starting new client initialization process...");
     isClientInitializing = true;
 
@@ -68,80 +267,114 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
     });
 
     if (!client) {
+        logger?.info(`${logPrefix}: Client instance not found. Creating new client...`);
         console.log("Client instance not found. Creating new client...");
+        
         try {
-            const { findChrome } = await import('find-chrome-bin');
-            const chromeInfo = await findChrome();
-            const executablePath = chromeInfo.executablePath;
+            // Use robust Chrome detection
+            logger?.info(`${logPrefix}: Starting Chrome executable detection...`);
+            const executablePath = await detectChromeExecutable();
+            logger?.info(`${logPrefix}: Chrome executable detected successfully: ${executablePath}`);
             console.log("Chrome executable found at:", executablePath);
 
-            client = new Client({
-                authStrategy: new LocalAuth({ clientId: 'new_client', dataPath }),
-                puppeteer: {
-                executablePath,
-                headless: true,
-                args: [
-                    '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote',
-                    '--disable-gpu', '--disable-site-isolation-trials', '--disable-gpu-sandbox',
-                    '--disable-software-rasterizer', '--shm-size=1gb'
-                ],
-            },
-            });
+            // Create client with enhanced error handling
+            logger?.info(`${logPrefix}: Creating WhatsApp client instance...`);
+            client = await createWhatsAppClient(dataPath, executablePath);
+            logger?.info(`${logPrefix}: WhatsApp client instance created successfully`);
 
+            // Set up event listeners with enhanced logging
             client.on('qr', qr => {
-                console.log('QR CODE RECEIVED:', qr);
-                if (onQrCode) onQrCode(qr);
+                logger?.info(`${logPrefix}: QR code received, length: ${qr.length}`);
+                console.log('📱 whatsapp-logic: QR CODE RECEIVED:', qr);
+                console.log('🔄 whatsapp-logic: Setting isClientInitializing to false (QR generated)');
+                isClientInitializing = false; // Reset initialization flag when QR is generated
+                console.log('📊 whatsapp-logic: isClientInitializing is now:', isClientInitializing);
+                
+                console.log('📞 whatsapp-logic: onQrCode callback exists:', !!onQrCode);
+                if (onQrCode) {
+                    logger?.info(`${logPrefix}: Calling onQrCode callback`);
+                    console.log('🔄 whatsapp-logic: Calling onQrCode callback');
+                    onQrCode(qr);
+                } else {
+                    logger?.warn(`${logPrefix}: onQrCode callback is null/undefined`);
+                    console.log('❌ whatsapp-logic: onQrCode callback is null/undefined');
+                }
             });
+            
             client.on('ready', () => {
-                console.log('Client is ready!');
-                if (onClientReady) onClientReady();
+                logger?.info(`${logPrefix}: Client is ready and authenticated!`);
+                console.log('🎉 whatsapp-logic: Client is ready!');
+                console.log('🔄 whatsapp-logic: Setting isClientInitializing to false');
+                isClientInitializing = false;
+                console.log('📊 whatsapp-logic: isClientInitializing is now:', isClientInitializing);
+                
+                if (logCallback) logCallback('whatsapp-logic: WhatsApp client is ready and authenticated');
+                if (onClientReady) {
+                    logger?.info(`${logPrefix}: Calling onClientReady callback`);
+                    console.log('📞 whatsapp-logic: Calling onClientReady callback');
+                    onClientReady();
+                }
                 if (resolveClientReady) {
+                    logger?.info(`${logPrefix}: Resolving clientReadyPromise`);
+                    console.log('✅ whatsapp-logic: Resolving clientReadyPromise');
                     resolveClientReady();
                     resolveClientReady = null;
                     rejectClientReady = null;
                 }
-                isClientInitializing = false;
             });
+            
             client.on('auth_failure', msg => {
+                logger?.error(`${logPrefix}: Authentication failure: ${msg}`);
                 console.error('AUTHENTICATION FAILURE', msg);
+                if (logCallback) logCallback(`whatsapp-logic: Authentication failure: ${msg}`);
                 if (onAuthFailure) onAuthFailure(msg);
                 if (rejectClientReady) rejectClientReady(new Error('Authentication failure: ' + msg));
                 resolveClientReady = null;
                 rejectClientReady = null;
                 isClientInitializing = false;
             });
-            client.on('disconnected', async (reason) => { // Make it async to await softLogoutAndReinitialize
+            
+            client.on('disconnected', async (reason) => {
+                logger?.warn(`${logPrefix}: Client disconnected: ${reason}`);
                 console.log('Client was disconnected:', reason);
+                if (logCallback) logCallback(`whatsapp-logic: WhatsApp client disconnected: ${reason}`);
+                
                 if (campaignState.status === 'running') {
-                    //stopSending(campaignState.id, 'disconnected');
                     pauseSending(campaignState.id);
+                    logger?.info(`${logPrefix}: Campaign paused due to disconnection, attempting re-initialization...`);
                     console.log("whatsapp-logic: Client disconnected while campaign active. Attempting re-initialization...");
+                    if (logCallback) logCallback('whatsapp-logic: Campaign paused due to disconnection, attempting re-initialization');
                 }
                 if (onDisconnected) onDisconnected(reason);
                 
                 // Attempt to re-initialize the client after a disconnect
-                // This will try to use the existing session files
+                logger?.info(`${logPrefix}: Attempting to re-initialize client after disconnect...`);
                 console.log("Attempting to re-initialize client after disconnect...");
                 try {
-                    // Pass the same callbacks to maintain communication with main process
-                    await softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure);
+                    await softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir);
+                    logger?.info(`${logPrefix}: Client re-initialization after disconnect successful.`);
                     console.log("Client re-initialization after disconnect successful.");
                 } catch (reinitError) {
+                    logger?.error(`${logPrefix}: Failed to re-initialize client after disconnect: ${reinitError.message}`);
                     console.error("Failed to re-initialize client after disconnect:", reinitError.message);
-                    // If re-initialization fails, then we can consider the client truly disconnected
-                    // and potentially inform the user to restart or clear session.
-                    // No need to reject clientReadyPromise here, as it's a new attempt.
                 } finally {
-                    isClientInitializing = false; // Ensure this is reset
-                    resolveClientReady = null; // Clear any pending promises
+                    isClientInitializing = false;
+                    resolveClientReady = null;
                     rejectClientReady = null;
                 }
             });
+            
         } catch (e) {
+            logger?.error(`${logPrefix}: Failed to detect Chrome or create client instance: ${e.message}`);
+            logger?.error(`${logPrefix}: Error stack: ${e.stack}`);
             console.error("Failed to import or find Chrome or create client instance:", e);
             isClientInitializing = false;
-            const errorMessage = e.message.includes('find-chrome-bin') ? "Chrome could not be found." : e.message;
+            
+            let errorMessage = e.message;
+            if (e.message.includes('find-chrome-bin') || e.message.includes('Chrome executable')) {
+                errorMessage = "No se pudo encontrar una instalación válida de Google Chrome. Por favor, instale Google Chrome o verifique que esté correctamente instalado.";
+            }
+            
             if(onAuthFailure) onAuthFailure(errorMessage);
             if (rejectClientReady) rejectClientReady(e);
             resolveClientReady = null;
@@ -149,22 +382,34 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
             return;
         }
     } else {
+        logger?.info(`${logPrefix}: Client instance already exists. Attempting to re-initialize it.`);
         console.log("Client instance already exists. Attempting to re-initialize it.");
     }
 
     try {
-        const initTimeoutMs = 90 * 1000;
+        const initTimeoutMs = 120 * 1000; // Increased timeout to 2 minutes
+        logger?.info(`${logPrefix}: Calling client.initialize() with timeout of ${initTimeoutMs / 1000} seconds.`);
         console.log("Calling client.initialize() with a timeout of", initTimeoutMs / 1000, "seconds.");
+        
         await Promise.race([
             client.initialize(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Client initialization timed out')), initTimeoutMs))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Client initialization timed out after 2 minutes')), initTimeoutMs))
         ]);
+        
+        logger?.info(`${logPrefix}: Client initialized successfully.`);
         console.log("Client initialized successfully.");
     } catch (error) {
+        logger?.error(`${logPrefix}: Error during client.initialize(): ${error.message}`);
+        logger?.error(`${logPrefix}: Error stack: ${error.stack}`);
         console.error("Error during client.initialize() or timeout:", error.message);
         console.error("Stack trace:", error.stack);
-        // Do NOT logoutAndClearSession here. Let the user decide or retry with existing session.
-        if (onAuthFailure) onAuthFailure(error.message);
+        
+        let userFriendlyMessage = error.message;
+        if (error.message.includes('timeout')) {
+            userFriendlyMessage = "La inicialización del cliente tardó demasiado tiempo. Esto puede deberse a problemas de red o con Chrome. Intente nuevamente.";
+        }
+        
+        if (onAuthFailure) onAuthFailure(userFriendlyMessage);
         isClientInitializing = false;
         if (rejectClientReady) rejectClientReady(error);
         resolveClientReady = null;
@@ -383,9 +628,11 @@ async function sendMessageWithRetries(chatId, message, media = null, maxRetries 
             return; // Message sent successfully
         } catch (error) {
             console.error(`Attempt ${i + 1} failed to send message to ${chatId}:`, error.message);
+            if (logCallback) logCallback(`whatsapp-logic: Message send attempt ${i + 1} failed for ${chatId}: ${error.message}`);
             if (i < maxRetries - 1) {
                 await delay(5000); // Wait before retrying
             } else {
+                if (logCallback) logCallback(`whatsapp-logic: Failed to send message to ${chatId} after ${maxRetries} attempts`);
                 throw new Error(`Failed to send message to ${chatId} after ${maxRetries} attempts: ${error.message}`);
             }
         }
@@ -470,14 +717,18 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
             // We only need excelPath here to load contacts initially.
             const { excelPath } = campaignState.config;
             console.log("whatsapp-logic: Reading Excel file:", excelPath);
+            if (logCallback) logCallback(`whatsapp-logic: Loading contacts from Excel file: ${excelPath}`);
             const excel = XLSX.readFile(excelPath);
             const nombreHoja = excel.SheetNames[0];
             campaignState.contacts = XLSX.utils.sheet_to_json(excel.Sheets[nombreHoja]);
             campaignState.totalContacts = campaignState.contacts.length;
             console.log(`whatsapp-logic: Data from '${nombreHoja}' sheet:`, campaignState.totalContacts, "rows.");
+            if (logCallback) logCallback(`whatsapp-logic: Loaded ${campaignState.totalContacts} contacts from sheet '${nombreHoja}'`);
         }
         
         notifyProgress(); // Initial progress update
+
+        if (logCallback) logCallback(`whatsapp-logic: Starting message sending loop from index ${campaignState.config.currentIndex} to ${campaignState.totalContacts - 1}`);
 
         for (let i = campaignState.config.currentIndex; i < campaignState.totalContacts; i++) {
             campaignState.config.currentIndex = i;
@@ -564,6 +815,7 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
 
             } else {
                 console.log(`El contacto ${numero} es invalido, no se le envió mensaje`);
+                if (logCallback) logCallback(`whatsapp-logic: Skipped invalid contact at index ${i}: ${numero}`);
                 campaignState.config.currentIndex = i + 1; // Skip invalid contact
                 notifyProgress();
             }
@@ -571,6 +823,7 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
 
         if (campaignState.status !== 'stopping') {
             campaignState.status = 'finished';
+            if (logCallback) logCallback(`whatsapp-logic: Campaign finished successfully. Total messages sent: ${campaignState.sentCount}`);
             const finalMessage = `🏁 CAMPAÑA FINALIZADA
 
 📊 Total de mensajes enviados: ${campaignState.sentCount}`;
@@ -579,11 +832,12 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                     await client.sendMessage(`${supNum}@c.us`, finalMessage);
                 }
             }
-            
+
         }
 
     } catch (error) {
         console.error("whatsapp-logic: CRITICAL Error during message sending:", error.message, error.stack);
+        if (logCallback) logCallback(`whatsapp-logic: CRITICAL ERROR during sending: ${error.message}`);
         campaignState.status = 'stopped'; // Mark as stopped on critical error
     } finally {
         if (campaignState.status !== 'paused') {
@@ -619,45 +873,67 @@ async function waitForClientReady() {
  * Logs out the client without clearing the session folder, then reinitializes.
  * This allows for potential automatic re-login if session files are valid.
  */
-async function softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure) {
-    console.log("softLogoutAndReinitialize called.");
+async function softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir = null) {
+    const logPrefix = 'Soft Logout & Reinitialize';
+    logger?.info(`${logPrefix}: softLogoutAndReinitialize called.`);
+    console.log("🔄 whatsapp-logic: softLogoutAndReinitialize called.");
+    
     if (client) {
         try {
-            console.log("Attempting client.logout()...");
+            logger?.info(`${logPrefix}: Attempting client.logout()...`);
+            console.log("🚪 whatsapp-logic: Attempting client.logout()...");
             await client.logout();
-            console.log("client.logout() successful.");
+            logger?.info(`${logPrefix}: client.logout() successful.`);
+            console.log("✅ whatsapp-logic: client.logout() successful.");
         }
         catch (error) {
-            console.error("Error during client.logout():", error.message);
+            logger?.error(`${logPrefix}: Error during client.logout(): ${error.message}`);
+            console.error("❌ whatsapp-logic: Error during client.logout():", error.message);
         }
     }
+    
     await destroyClientInstance(); // Clean up client object
-    console.log("Client instance destroyed after soft logout.");
+    logger?.info(`${logPrefix}: Client instance destroyed after soft logout.`);
+    console.log("🧹 whatsapp-logic: Client instance destroyed after soft logout.");
 
-    // Now reinitialize the client
-    await initializeClient(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure);
-    console.log("Client reinitialized after soft logout.");
+    // Reset the initialization flag to ensure clean re-initialization
+    isClientInitializing = false;
+    logger?.info(`${logPrefix}: Reset isClientInitializing to false before re-initialization`);
+    console.log("🔄 whatsapp-logic: Reset isClientInitializing to false before re-initialization");
+
+    // Now reinitialize the client with the same callbacks
+    logger?.info(`${logPrefix}: Re-initializing client with callbacks...`);
+    console.log("🚀 whatsapp-logic: Re-initializing client with callbacks...");
+    await initializeClient(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir);
+    logger?.info(`${logPrefix}: Client reinitialized after soft logout.`);
+    console.log("✅ whatsapp-logic: Client reinitialized after soft logout.");
 }
 
 async function destroyClientInstance() {
+    const logPrefix = 'Client Destroy';
     if (client) {
+        logger?.info(`${logPrefix}: Attempting to destroy client instance...`);
         console.log("Attempting to destroy client instance...");
         try {
             const destroyTimeoutMs = 60 * 1000; // 60 seconds for general destroy
             await Promise.race([
                 client.destroy(),
                 new Promise((_, reject) => setTimeout(() => {
+                    logger?.warn(`${logPrefix}: Client destroy timed out.`);
                     console.warn("Client destroy timed out.");
                     reject(new Error('Client destroy timeout'));
                 }, destroyTimeoutMs))
             ]);
+            logger?.info(`${logPrefix}: Client instance destroyed successfully.`);
             console.log("Client instance destroyed successfully.");
         } catch (error) {
+            logger?.error(`${logPrefix}: Error destroying client instance: ${error.message}`);
             console.error("Error destroying client instance:", error.message);
         } finally {
             client = null;
         }
     } else {
+        logger?.info(`${logPrefix}: No active client instance to destroy.`);
         console.log("No active client instance to destroy.");
     }
 }
@@ -666,24 +942,31 @@ async function destroyClientInstance() {
  * Logs out, destroys the client, and clears the session folder to allow for a new QR code.
  */
 async function logoutAndClearSession(dataPath) {
+    const logPrefix = 'Logout & Clear Session';
+    logger?.info(`${logPrefix}: Starting logout and session clear process for path: ${dataPath}`);
+    
     await destroyClientInstance(); // Use the new helper function
 
     // Add a small delay to ensure file handles are released
+    logger?.info(`${logPrefix}: Waiting 2 seconds for file handles to be released...`);
     await delay(2000); // 2 seconds delay
 
     // After ensuring the client is destroyed, delete the session folder
     try {
-        // The path is relative to this file's location in /bot, so we go one level up.
         const sessionPath = dataPath;
         if (fs.existsSync(sessionPath)) {
+            logger?.info(`${logPrefix}: Attempting to delete session folder: ${sessionPath}`);
             console.log(`Attempting to delete session folder: ${sessionPath}`);
             // Use fs.promises.rm for modern async/await syntax
             await fs.promises.rm(sessionPath, { recursive: true, force: true });
+            logger?.info(`${logPrefix}: Session folder successfully deleted.`);
             console.log("Session folder successfully deleted.");
         } else {
+            logger?.info(`${logPrefix}: Session folder not found, no deletion needed.`);
             console.log("Session folder not found, no deletion needed.");
         }
     } catch (error) {
+        logger?.error(`${logPrefix}: Error deleting session folder: ${error.message}`);
         console.error(`Error deleting session folder: ${error.message}`);
         // This error should be propagated to the UI to inform the user.
         throw new Error(`Failed to delete session folder. Please try deleting it manually. Path: ${dataPath}`);
@@ -695,15 +978,24 @@ async function logoutAndClearSession(dataPath) {
  * @returns {string} - 'initializing', 'ready', 'not_ready', or 'disconnected'.
  */
 function getClientStatus() {
-    if (isClientInitializing) {
-        return { status: 'initializing' };
-    }
+    console.log("🔍 whatsapp-logic: getClientStatus called");
+    console.log("📊 whatsapp-logic: isClientInitializing:", isClientInitializing);
+    console.log("📊 whatsapp-logic: client exists:", !!client);
+    console.log("📊 whatsapp-logic: client.info exists:", !!(client && client.info));
+    
     if (client && client.info) {
+        console.log("✅ whatsapp-logic: Returning 'ready' status with phone:", client.info.wid.user);
         return { status: 'ready', phoneNumber: client.info.wid.user };
     }
-    if (client) {
+    if (client && !isClientInitializing) {
+        console.log("📱 whatsapp-logic: Client exists but not ready (QR pending) - Returning 'not_ready' status");
         return { status: 'not_ready' }; // Client exists but not ready (e.g., QR code pending)
     }
+    if (isClientInitializing) {
+        console.log("⏳ whatsapp-logic: Returning 'initializing' status");
+        return { status: 'initializing' };
+    }
+    console.log("❌ whatsapp-logic: Returning 'disconnected' status");
     return { status: 'disconnected' };
 }
 

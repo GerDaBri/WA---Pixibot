@@ -75,16 +75,21 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
+    console.log("Step3_Send: useEffect for reconnect button - sessionStatus:", sessionStatus);
     if (sessionStatus === 'disconnected' || sessionStatus === 'auth_failure') {
+      console.log("Step3_Send: Setting timer for reconnect button (5 seconds)");
       const timer = setTimeout(() => {
+        console.log("Step3_Send: Timer expired - showing reconnect button");
         setShowReconnectButton(true);
       }, 5000);
 
       return () => {
+        console.log("Step3_Send: Clearing reconnect timer");
         clearTimeout(timer);
         setShowReconnectButton(false);
       };
     } else {
+        console.log("Step3_Send: Hiding reconnect button - sessionStatus is:", sessionStatus);
         setShowReconnectButton(false);
     }
   }, [sessionStatus]);
@@ -219,7 +224,10 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                     <Text className="status-text status-text-error">Sesión Desconectada</Text>
                     <div className="step-actions">
                         {showReconnectButton && (
-                            <Button appearance="primary" onClick={() => electronAPI.initializeClient()}>
+                            <Button appearance="primary" onClick={() => {
+                                console.log("Step3_Send: Reconnect button clicked - calling initializeClient");
+                                electronAPI.initializeClient();
+                            }}>
                                 Reconectar
                             </Button>
                         )}
@@ -232,7 +240,10 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                     <Text style={{ textAlign: 'center', marginTop: '10px' }}>Por favor, intenta reconectar o reinicia la aplicación.</Text>
                     <div className="step-actions">
                         {showReconnectButton && (
-                            <Button appearance="primary" onClick={() => electronAPI.initializeClient()}>
+                            <Button appearance="primary" onClick={() => {
+                                console.log("Step3_Send: Reconnect button clicked (auth_failure) - calling initializeClient");
+                                electronAPI.initializeClient();
+                            }}>
                                 Reconectar
                             </Button>
                         )}

@@ -7,23 +7,8 @@
 
 ## Configuración Implementada
 
-### 1. GitHub Actions Workflow (Optimizado)
-- **Archivo**: `.github/workflows/build.yml`
-- **Node.js**: Versión 20 (resuelve warnings de dependencias)
-- **Build Process**: Optimizado para evitar duplicación
-  1. Build React app (`npm run webpack-build`)
-  2. Build Electron app directo (`electron-builder --publish=always`)
-- **Configuración**: `skip_build: true` + `args: --publish=always`
-- **Trigger**: Push de tags que empiecen con `v` (ej: `v1.0.2`)
-- **Acción**: Construye y publica automáticamente en GitHub Releases
 
-### 2. Configuración electron-builder
-- **Provider**: GitHub
-- **Repository**: `GerDaBri/WA---Pixibot`
-- **Release Type**: Release (no draft)
-- **NSIS**: Configurado para instalación personalizable
-
-### 3. Implementación en main.js
+### Implementación en main.js
 - ✅ Auto-download habilitado
 - ✅ Auto-install en cierre de app
 - ✅ Notificaciones al usuario

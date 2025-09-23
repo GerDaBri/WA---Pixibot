@@ -38,4 +38,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
         };
     },
     removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
+    send: (channel, ...args) => ipcRenderer.send(channel, ...args),
 });
