@@ -6,6 +6,71 @@ const path = require('path');
 const winston = require('winston');
 const os = require('os');
 
+// Función para cargar configuración de Puppeteer desde JSON
+function loadPuppeteerConfig(configPath) {
+    try {
+        if (fs.existsSync(configPath)) {
+            const configData = fs.readFileSync(configPath, 'utf8');
+            const config = JSON.parse(configData);
+
+            // Validar estructura básica
+            const defaultConfig = {
+                headless: true,
+                puppeteerArgs: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu',
+                    '--disable-site-isolation-trials',
+                    '--disable-gpu-sandbox',
+                    '--disable-software-rasterizer',
+                    '--shm-size=1gb',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor'
+                ],
+                executablePath: null
+            };
+
+            // Merge con defaults
+            return {
+                headless: typeof config.headless === 'boolean' ? config.headless : defaultConfig.headless,
+                puppeteerArgs: Array.isArray(config.puppeteerArgs) && config.puppeteerArgs.length > 0
+                    ? config.puppeteerArgs
+                    : defaultConfig.puppeteerArgs,
+                executablePath: typeof config.executablePath === 'string' && config.executablePath.trim()
+                    ? config.executablePath.trim()
+                    : defaultConfig.executablePath
+            };
+        }
+    } catch (error) {
+        logger?.warn('Config Load: Error loading puppeteer config, using defaults:', error.message);
+    }
+
+    // Return defaults if file doesn't exist or error
+    return {
+        headless: true,
+        puppeteerArgs: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-site-isolation-trials',
+            '--disable-gpu-sandbox',
+            '--disable-software-rasterizer',
+            '--shm-size=1gb',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor'
+        ],
+        executablePath: null
+    };
+}
+
 let client = null;
 let clientReadyPromise = null;
 let resolveClientReady = null;
@@ -141,45 +206,50 @@ async function detectChromeExecutable() {
 }
 
 // Enhanced client creation with detailed logging
-async function createWhatsAppClient(dataPath, executablePath) {
+async function createWhatsAppClient(dataPath, executablePath, configPath = null) {
     const logPrefix = 'Client Creation';
     logger?.info(`${logPrefix}: Creating WhatsApp client with Chrome path: ${executablePath}`);
     logger?.info(`${logPrefix}: Session data path: ${dataPath}`);
-    
+
     try {
+        // Calculate actual config path
+        const actualConfigPath = configPath || path.join(path.dirname(dataPath), 'whatsapp-config.json');
+
+        // Load Puppeteer configuration
+        const puppeteerConfig = loadPuppeteerConfig(actualConfigPath);
+
+        // Log config source
+        if (fs.existsSync(actualConfigPath)) {
+            logger?.info(`${logPrefix}: Config loaded from file: ${actualConfigPath}`);
+        } else {
+            logger?.info(`${logPrefix}: Config file not found at ${actualConfigPath}, using defaults`);
+        }
+
+        logger?.info(`${logPrefix}: Loaded Puppeteer config - headless: ${puppeteerConfig.headless}, args count: ${puppeteerConfig.puppeteerArgs.length}, executablePath: ${puppeteerConfig.executablePath || 'auto-detect'}`);
+
+        // Use custom executablePath if provided, otherwise use detected one
+        const finalExecutablePath = puppeteerConfig.executablePath || executablePath;
+
         const clientConfig = {
             authStrategy: new LocalAuth({ clientId: 'new_client', dataPath }),
             puppeteer: {
-                executablePath,
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--disable-gpu',
-                    '--disable-site-isolation-trials',
-                    '--disable-gpu-sandbox',
-                    '--disable-software-rasterizer',
-                    '--shm-size=1gb',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor'
-                ],
+                executablePath: finalExecutablePath,
+                headless: puppeteerConfig.headless,
+                args: puppeteerConfig.puppeteerArgs,
                 timeout: 60000,
                 protocolTimeout: 60000
             }
         };
-        
+
         logger?.info(`${logPrefix}: Client configuration prepared`);
         logger?.info(`${logPrefix}: Puppeteer args: ${JSON.stringify(clientConfig.puppeteer.args)}`);
-        
+        logger?.info(`${logPrefix}: Final executable path: ${finalExecutablePath}`);
+
         const newClient = new Client(clientConfig);
         logger?.info(`${logPrefix}: Client instance created successfully`);
-        
+
         return newClient;
-        
+
     } catch (error) {
         const errorMessage = `Failed to create WhatsApp client: ${error.message}`;
         logger?.error(`${logPrefix}: ${errorMessage}`);
@@ -198,6 +268,13 @@ const initialCampaignState = {
     sentCount: 0,
     progressCallback: null,
     resumePromiseResolver: null,
+    countdownCallback: null, // Callback for countdown updates
+    countdownState: {
+        isActive: false,
+        remainingTime: 0,
+        totalTime: 0,
+        type: 'idle' // 'idle', 'sending', 'pausing'
+    }
 };
 
 let campaignState = { ...initialCampaignState };
@@ -469,6 +546,7 @@ function pauseSending(campaignId) {
     }
     console.log("whatsapp-logic: Pausing sending...");
     campaignState.status = 'paused'; // Set status directly to 'paused'
+    setCountdownState('idle'); // Clear countdown when paused
 }
 
 /**
@@ -487,6 +565,7 @@ function resumeSending(campaignId) {
     // This handles the "live" pause/resume case.
     if (campaignState.resumePromiseResolver) {
         campaignState.status = 'running';
+        setCountdownState('sending'); // Set to sending when resumed
         notifyProgress();
         campaignState.resumePromiseResolver();
         campaignState.resumePromiseResolver = null;
@@ -500,7 +579,8 @@ function resumeSending(campaignId) {
             campaignState.progressCallback,
             campaignState.logCallback,
             campaignState.config.currentIndex, // Use the single source of truth
-            campaignState.id
+            campaignState.id,
+            campaignState.countdownCallback // Pass countdown callback
         );
     }
 }
@@ -536,6 +616,9 @@ function clearCampaign() {
         console.log(`whatsapp-logic: Stop signal sent to campaign ${campaignState.id}. It will terminate shortly.`);
     }
     
+    // Clear countdown state before resetting
+    setCountdownState('idle');
+    
     // Reset the state immediately, regardless of the previous state.
     campaignState = JSON.parse(JSON.stringify(initialCampaignState));
     console.log("whatsapp-logic: Campaign state has been reset to initial.");
@@ -556,23 +639,76 @@ function delay(ms) {
 }
 
 /**
- * A delay that can be interrupted by a 'stopping' campaign status.
- * @param {number} ms - The total milliseconds to wait.
+ * Notifies countdown updates to the UI
  */
-async function controlledDelay(ms) {
+function notifyCountdown() {
+    if (campaignState.countdownCallback) {
+        campaignState.countdownCallback({
+            ...campaignState.countdownState,
+            campaignId: campaignState.id
+        });
+    }
+}
+
+/**
+ * Sets the countdown state and notifies UI
+ * @param {string} type - 'idle', 'sending', 'pausing'
+ * @param {number} remainingTime - Time remaining in milliseconds
+ * @param {number} totalTime - Total time in milliseconds
+ */
+function setCountdownState(type, remainingTime = 0, totalTime = 0) {
+    campaignState.countdownState = {
+        isActive: type !== 'idle',
+        remainingTime: Math.max(0, remainingTime),
+        totalTime: totalTime,
+        type: type
+    };
+    notifyCountdown();
+}
+
+/**
+ * A delay that can be interrupted by a 'stopping' campaign status and emits countdown updates.
+ * @param {number} ms - The total milliseconds to wait.
+ * @param {string} delayType - Type of delay: 'pause' or 'send'
+ */
+async function controlledDelay(ms, delayType = 'send') {
     const endTime = Date.now() + ms;
+    const totalTime = ms;
+    
+    // Set initial countdown state
+    if (delayType === 'pause') {
+        setCountdownState('pausing', ms, totalTime);
+    } else {
+        setCountdownState('sending', ms, totalTime);
+    }
 
     while (Date.now() < endTime) {
         if (campaignState.status === 'stopping' || campaignState.status === 'paused') {
             console.log(`controlledDelay: Signal '${campaignState.status}' received, aborting delay.`);
+            setCountdownState('idle');
             return;
         }
 
         const remaining = endTime - Date.now();
+        
+        // Update countdown state every second
+        if (delayType === 'pause') {
+            setCountdownState('pausing', remaining, totalTime);
+        } else {
+            setCountdownState('sending', remaining, totalTime);
+        }
+        
         const waitTime = Math.min(remaining, 1000); // Check every second
         if (waitTime > 0) {
             await new Promise(resolve => setTimeout(resolve, waitTime));
         }
+    }
+    
+    // When delay finishes, set to sending state (except if it was a send delay)
+    if (delayType === 'pause') {
+        setCountdownState('sending');
+    } else {
+        setCountdownState('idle');
     }
 }
 
@@ -643,8 +779,10 @@ async function sendMessageWithRetries(chatId, message, media = null, maxRetries 
  * Restarts the sending process from a persisted campaign state.
  * @param {object} persistedCampaign - The campaign object from the store.
  * @param {function} callbackProgress - Callback to report progress.
+ * @param {function} logCallback - Callback to report log messages.
+ * @param {function} countdownCallback - Callback to report countdown updates.
  */
-function restartSendingFromState(persistedCampaign, callbackProgress, logCallback) {
+function restartSendingFromState(persistedCampaign, callbackProgress, logCallback, countdownCallback = null) {
     console.log("whatsapp-logic: Restarting sending process from persisted state.");
     
     // Hydrate the state from the persisted object
@@ -656,6 +794,10 @@ function restartSendingFromState(persistedCampaign, callbackProgress, logCallbac
     campaignState.sentCount = persistedCampaign.sent || 0;
     campaignState.progressCallback = callbackProgress;
     campaignState.logCallback = logCallback; // Store logCallback
+    campaignState.countdownCallback = countdownCallback; // Store countdownCallback
+
+    // Initialize countdown state for restored campaign
+    setCountdownState('idle');
 
     // Immediately notify the UI of the restored state
     notifyProgress();
@@ -670,10 +812,12 @@ function restartSendingFromState(persistedCampaign, callbackProgress, logCallbac
  * Starts or resumes sending messages based on the provided configuration.
  * @param {object} config - Configuration for sending messages.
  * @param {function} callbackProgress - Callback to report progress.
+ * @param {function} logCallback - Callback to report log messages.
  * @param {number} initialStartIndex - The index to start sending from (for resuming).
  * @param {string|null} campaignId - The ID of the campaign if it's being resumed.
+ * @param {function} countdownCallback - Callback to report countdown updates.
  */
-async function startSending(config, callbackProgress, logCallback, initialStartIndex = 0, campaignId = null) {
+async function startSending(config, callbackProgress, logCallback, initialStartIndex = 0, campaignId = null, countdownCallback = null) {
     // Robust guard: Prevent starting a new campaign if any campaign is in an active state.
     // A resumed campaign (which has a campaignId) is allowed to proceed.
     if (!campaignId && ['running', 'pausing', 'stopping'].includes(campaignState.status)) {
@@ -692,15 +836,20 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
         campaignState.config = config;
         campaignState.progressCallback = callbackProgress;
         campaignState.logCallback = logCallback; // Store logCallback
+        campaignState.countdownCallback = countdownCallback; // Store countdownCallback
         campaignState.config.currentIndex = initialStartIndex > 0 ? initialStartIndex : (config.currentIndex > 0 ? config.currentIndex : 0);
         campaignState.sentCount = 0; // Reset for new campaign
         campaignState.contacts = []; // Reset contacts for a new campaign
         campaignState.totalContacts = 0;
+        // Initialize countdown state
+        setCountdownState('sending');
     }
     // --- Or link to an existing, resumed campaign ---
     else {
         campaignState.id = campaignId;
         campaignState.status = 'running'; // Set to running to start the loop
+        campaignState.countdownCallback = countdownCallback; // Store countdownCallback
+        setCountdownState('sending');
     }
     
     notifyProgress();
@@ -804,13 +953,16 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                             await client.sendMessage(`${supNum}@c.us`, pauseMessage);
                         }
                     }
-                    await controlledDelay(tiempoPausa); // USE CONTROLLED DELAY
+                    // Subtract 2 seconds from pause time as requested
+                    const adjustedPauseTime = Math.max(2000, tiempoPausa - 2000);
+                    await controlledDelay(adjustedPauseTime, 'pause'); // USE CONTROLLED DELAY with pause type
                     if (campaignState.status !== 'stopping') {
-                        
+                        // Set to sending state after pause
+                        setCountdownState('sending');
                     }
                 } else {
                     // Apply send delay only if not doing a long pause
-                    await controlledDelay(sendDelay * 1000); // USE CONTROLLED DELAY
+                    await controlledDelay(sendDelay * 1000, 'send'); // USE CONTROLLED DELAY with send type
                 }
 
             } else {
@@ -1014,7 +1166,9 @@ module.exports = {
     getExcelHeaders,
     getFirstExcelRow, // Export the new function
     getClientStatus, // Export the new function
-    softLogoutAndReinitialize // Export the new function
+    softLogoutAndReinitialize, // Export the new function
+    setCountdownState, // Export countdown function
+    notifyCountdown // Export countdown notification function
 };
 
 /**
@@ -1045,9 +1199,9 @@ async function getFirstExcelRow(excelPath) {
 
 
 /**
- * Reads the Excel file and returns the headers of the "Datos Limpios" sheet.
+ * Reads the Excel file and returns the headers of the sheet with validation.
  * @param {string} excelPath - The absolute path to the Excel file.
- * @returns {Promise<string[]>} A promise that resolves with an array of header strings.
+ * @returns {Promise<object>} A promise that resolves with an object containing headers, validation status, and missing fields.
  */
 async function getExcelHeaders(excelPath) {
     try {
@@ -1056,14 +1210,30 @@ async function getExcelHeaders(excelPath) {
         const sheet = excel.Sheets[nombreHoja];
         if (!sheet) {
             console.warn("whatsapp-logic: 'Datos Limpios' sheet not found in Excel file.");
-            return [];
+            return { headers: [], hasRequiredFields: false, missingFields: ['item', 'numero'] };
         }
         const datos = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // Get data as array of arrays
         if (datos.length > 0) {
-           const headers = datos[0]; // First row is the header
-            return headers.filter(header => header !== 'item' && header !== 'numero' && header !== 'Numero' && header !== 'Item');
+           const rawHeaders = datos[0]; // First row is the header
+
+           // Check for required fields (case-insensitive)
+           const hasItem = rawHeaders.some(header => header && header.toLowerCase() === 'item');
+           const hasNumero = rawHeaders.some(header => header && header.toLowerCase() === 'numero');
+
+           const missingFields = [];
+           if (!hasItem) missingFields.push('item');
+           if (!hasNumero) missingFields.push('numero');
+
+           // Filter out the required fields for the returned headers (maintain existing functionality)
+           const headers = rawHeaders.filter(header => header && header.toLowerCase() !== 'item' && header.toLowerCase() !== 'numero');
+
+           return {
+               headers,
+               hasRequiredFields: missingFields.length === 0,
+               missingFields
+           };
         }
-        return [];
+        return { headers: [], hasRequiredFields: false, missingFields: ['item', 'numero'] };
     } catch (error) {
         console.error("whatsapp-logic: Error reading Excel headers:", error);
         throw error;

@@ -22,9 +22,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // File system
     openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
+    saveFileDialog: () => ipcRenderer.invoke('save-file-dialog'),
     openMediaDialog: () => ipcRenderer.invoke('open-media-dialog'),
     readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
     writeExcelFile: (fileContentBuffer) => ipcRenderer.invoke('write-excel-file', fileContentBuffer),
+    generateExcelTemplate: () => ipcRenderer.invoke('generate-excel-template'),
+    saveExcelTemplate: (filePath, buffer) => ipcRenderer.invoke('save-excel-template', filePath, buffer),
     getExcelHeaders: () => ipcRenderer.invoke('get-excel-headers'),
     getFirstExcelRow: () => ipcRenderer.invoke('get-first-excel-row'),
     getClientStatus: () => ipcRenderer.invoke('get-client-status'),
@@ -39,4 +42,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
     send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+
+    // Update events
+    updateEvents: {
+        onUpdateAvailable: (callback) => {
+            const subscription = (event, ...args) => callback(...args);
+            ipcRenderer.on('update-available', subscription);
+            return () => ipcRenderer.removeListener('update-available', subscription);
+        },
+        onUpdateDownloaded: (callback) => {
+            const subscription = (event, ...args) => callback(...args);
+            ipcRenderer.on('update-downloaded', subscription);
+            return () => ipcRenderer.removeListener('update-downloaded', subscription);
+        },
+        onDownloadProgress: (callback) => {
+            const subscription = (event, ...args) => callback(...args);
+            ipcRenderer.on('download-progress', subscription);
+            return () => ipcRenderer.removeListener('download-progress', subscription);
+        },
+        onUpdateError: (callback) => {
+            const subscription = (event, ...args) => callback(...args);
+            ipcRenderer.on('update-error', subscription);
+            return () => ipcRenderer.removeListener('update-error', subscription);
+        },
+        removeAllUpdateListeners: () => {
+            ipcRenderer.removeAllListeners('update-available');
+            ipcRenderer.removeAllListeners('update-downloaded');
+            ipcRenderer.removeAllListeners('download-progress');
+            ipcRenderer.removeAllListeners('update-error');
+        }
+    },
+
+    // Update control methods
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    downloadUpdate: () => ipcRenderer.invoke('download-update'),
+    installUpdate: () => ipcRenderer.invoke('install-update')
 });

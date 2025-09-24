@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { FluentProvider, webLightTheme, Spinner, Text, Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogActions, Button } from '@fluentui/react-components';
 import logo from '../assets/logos/logo-principal.png';
+import UpdateNotification from './components/UpdateNotification';
 
 // Lazy load step components
 const Step0_Login = lazy(() => import('./components/Step0_Login'));
@@ -20,9 +21,17 @@ function App() {
     const [sessionStatus, setSessionStatus] = useState('initializing');
     const [logs, setLogs] = useState([]);
     const [isApiReady, setIsApiReady] = useState(false); // New state to track API readiness
+    
+    // Update notification states
+    const [updateStatus, setUpdateStatus] = useState('idle');
+    const [updateInfo, setUpdateInfo] = useState(null);
+    const [downloadProgress, setDownloadProgress] = useState(null);
+    const [updateError, setUpdateError] = useState(null);
+    
     const listenersSetupRef = useRef(false);
     const clientInitializedForStep3Ref = useRef(false); // Track if client was initialized for current Step 3 session
     const clientStatusPollingRef = useRef(null); // Reference for polling interval
+    const updateListenersRef = useRef(null); // Reference for update listeners cleanup
 
     useEffect(() => {
         const setupListeners = () => {
@@ -32,6 +41,19 @@ function App() {
                 if (updatedCampaign.status === 'running' || updatedCampaign.status === 'paused' || updatedCampaign.status === 'finished') {
                     setCurrentStep(4);
                 }
+            });
+
+            window.electronAPI.on('countdown-update', (countdownData) => {
+                // Update campaign with countdown data
+                setCampaign(prevCampaign => {
+                    if (prevCampaign) {
+                        return {
+                            ...prevCampaign,
+                            countdown: countdownData
+                        };
+                    }
+                    return prevCampaign;
+                });
             });
 
             window.electronAPI.on('qrcode', (url) => { // 'url' is now the data URL directly
@@ -68,6 +90,52 @@ function App() {
             });
         };
 
+        const setupUpdateListeners = () => {
+            if (!window.electronAPI?.updateEvents) return;
+
+            const unsubscribeAvailable = window.electronAPI.updateEvents.onUpdateAvailable((info) => {
+                console.log('App.js: Update available:', info);
+                setUpdateStatus('available');
+                setUpdateInfo(info);
+                setUpdateError(null);
+                
+                // Iniciar descarga automáticamente
+                setTimeout(() => {
+                    console.log('App.js: Auto-starting download for available update');
+                    if (window.electronAPI?.downloadUpdate) {
+                        window.electronAPI.downloadUpdate();
+                    }
+                }, 1000); // Esperar 1 segundo para mostrar el mensaje
+            });
+
+            const unsubscribeProgress = window.electronAPI.updateEvents.onDownloadProgress((progress) => {
+                console.log('App.js: Download progress:', progress);
+                setUpdateStatus('downloading');
+                setDownloadProgress(progress);
+            });
+
+            const unsubscribeDownloaded = window.electronAPI.updateEvents.onUpdateDownloaded((info) => {
+                console.log('App.js: Update downloaded:', info);
+                setUpdateStatus('downloaded');
+                setUpdateInfo(info);
+                setDownloadProgress(null);
+            });
+
+            const unsubscribeError = window.electronAPI.updateEvents.onUpdateError((error) => {
+                console.log('App.js: Update error:', error);
+                setUpdateStatus('error');
+                setUpdateError(error);
+            });
+
+            // Store cleanup functions
+            updateListenersRef.current = () => {
+                unsubscribeAvailable();
+                unsubscribeProgress();
+                unsubscribeDownloaded();
+                unsubscribeError();
+            };
+        };
+
         const loadInitialData = async () => {
             // A short delay to ensure the preload script has run
             setTimeout(async () => {
@@ -75,6 +143,7 @@ function App() {
                     setIsApiReady(true); // Set API as ready
                     if (!listenersSetupRef.current) {
                         setupListeners();
+                        setupUpdateListeners(); // Setup update listeners
                         listenersSetupRef.current = true;
                     }
 
@@ -194,8 +263,16 @@ function App() {
                 clientStatusPollingRef.current = null;
             }
             
+            // Clean up update listeners
+            if (updateListenersRef.current) {
+                console.log("🧹 App.js: Cleaning up update listeners");
+                updateListenersRef.current();
+                updateListenersRef.current = null;
+            }
+            
             if (window.electronAPI && window.electronAPI.removeAllListeners) {
                 window.electronAPI.removeAllListeners('campaign-update');
+                window.electronAPI.removeAllListeners('countdown-update');
                 window.electronAPI.removeAllListeners('qrcode');
                 window.electronAPI.removeAllListeners('ready');
                 window.electronAPI.removeAllListeners('auth-failure');
@@ -364,6 +441,46 @@ function App() {
         }
     };
 
+    // Update notification handlers
+    const handleDownloadUpdate = () => {
+        console.log('App.js: Starting update download');
+        setUpdateStatus('downloading');
+        if (window.electronAPI?.downloadUpdate) {
+            window.electronAPI.downloadUpdate();
+        }
+    };
+
+    const handleInstallUpdate = () => {
+        console.log('App.js: Installing update');
+        if (window.electronAPI?.installUpdate) {
+            window.electronAPI.installUpdate();
+        }
+    };
+
+    const handleIgnoreUpdate = () => {
+        console.log('App.js: Ignoring update');
+        setUpdateStatus('idle');
+        setUpdateInfo(null);
+        setUpdateError(null);
+    };
+
+    const handleRetryUpdate = () => {
+        console.log('App.js: Retrying update');
+        setUpdateError(null);
+        setUpdateStatus('checking');
+        if (window.electronAPI?.checkForUpdates) {
+            window.electronAPI.checkForUpdates();
+        }
+    };
+
+    const handleCloseNotification = () => {
+        console.log('App.js: Closing update notification');
+        setUpdateStatus('idle');
+        setUpdateInfo(null);
+        setDownloadProgress(null);
+        setUpdateError(null);
+    };
+
     const renderStep = () => {
         // Block access if license is invalid and not on login step
         if ((licenseStatus === 'expired' || licenseStatus === 'suspended' || licenseStatus === 'no_license' || licenseStatus === 'no_license_data' || licenseStatus === 'error') && currentStep > 0) {
@@ -459,8 +576,22 @@ function App() {
     return (
         <FluentProvider theme={webLightTheme}>
             <div className="app-container">
+                {/* Update Notification - Global component */}
+                <UpdateNotification
+                    status={updateStatus}
+                    updateInfo={updateInfo}
+                    downloadProgress={downloadProgress}
+                    error={updateError}
+                    onDownload={handleDownloadUpdate}
+                    onInstall={handleInstallUpdate}
+                    onIgnore={handleIgnoreUpdate}
+                    onRetry={handleRetryUpdate}
+                    onClose={handleCloseNotification}
+                />
+                
                 <header className="app-header">
                     <img src={logo} className="app-logo" alt="logo" />
+                    
                     {licenseStatus && currentStep > 0 && (
                         <Dialog>
                             <DialogTrigger disableButtonEnhancement>

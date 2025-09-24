@@ -5,6 +5,38 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
   const [openAdvancedSettings, setOpenAdvancedSettings] = useState('none');
   const [advancedConfig, setAdvancedConfig] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [countdownState, setCountdownState] = useState({
+    isActive: false,
+    remainingTime: 0,
+    totalTime: 0,
+    type: 'idle'
+  });
+
+  // Function to format time in m:ss format
+  const formatTime = (milliseconds) => {
+    if (milliseconds <= 0) return '0:00';
+    
+    const totalSeconds = Math.ceil(milliseconds / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // Function to get countdown message based on state
+  const getCountdownMessage = () => {
+    if (!countdownState.isActive) {
+      return null;
+    }
+
+    if (countdownState.type === 'pausing' && countdownState.remainingTime > 0) {
+      return `(Pausa automatica entre mensajes: ${formatTime(countdownState.remainingTime)})`;
+    } else if (countdownState.type === 'sending' || countdownState.remainingTime <= 0) {
+      return '(enviando mensajes)';
+    }
+
+    return null;
+  };
 
   useEffect(() => {
     // Sync local state when the main campaign prop changes
@@ -15,6 +47,33 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
       setAdvancedConfig(null);
     }
   }, [campaign]);
+
+  // Handle countdown updates from campaign
+  useEffect(() => {
+    if (campaign && campaign.countdown) {
+      setCountdownState(campaign.countdown);
+    } else {
+      // Reset countdown state when no countdown data
+      setCountdownState({
+        isActive: false,
+        remainingTime: 0,
+        totalTime: 0,
+        type: 'idle'
+      });
+    }
+  }, [campaign?.countdown]);
+
+  // Show test message when campaign is running but no countdown data yet
+  useEffect(() => {
+    if (campaign && campaign.status === 'running' && !campaign.countdown) {
+      setCountdownState({
+        isActive: true,
+        remainingTime: 0,
+        totalTime: 0,
+        type: 'sending'
+      });
+    }
+  }, [campaign?.status, campaign?.countdown]);
 
   // Guard clause: Render loading state if campaign or our local config state is not yet available
   if (!campaign || !campaign.config || !advancedConfig) {
@@ -30,6 +89,9 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
     let parsedValue = value;
     if (type === 'number') {
       parsedValue = value ? Number(value) : 0;
+      if (name === 'pausaMaxima') {
+        parsedValue = Math.max(2, parsedValue);
+      }
     } else if (name === 'supervisorNumbers') {
       parsedValue = value.split(',').map(num => num.trim()).filter(num => num);
     }
@@ -38,9 +100,13 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
 
   const handleSaveAdvancedSettings = async () => {
     setIsSaving(true);
-    console.log("Saving advanced settings:", advancedConfig);
+    let configToSave = { ...advancedConfig };
+    if (configToSave.pausaMaxima < configToSave.pausaMinima) {
+      configToSave.pausaMinima = configToSave.pausaMaxima - 1;
+    }
+    console.log("Saving advanced settings:", configToSave);
     try {
-      const result = await window.electronAPI.updateCampaignConfig(advancedConfig);
+      const result = await window.electronAPI.updateCampaignConfig(configToSave);
       if (result.success) {
         alert("Configuración avanzada guardada y aplicada con éxito!");
       } else {
@@ -66,7 +132,18 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
           <img src={qrCodeData} alt="QR Code" />
         </div>
       )}
-      <p>Enviados: {campaign.config.currentIndex || 0} / {campaign.total}</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+        <p style={{ margin: 0 }}>Enviados: {campaign.config.currentIndex || 0} / {campaign.total}</p>
+        {getCountdownMessage() && (
+          <span style={{
+            fontSize: '14px',
+            color: countdownState.type === 'pausing' ? '#d13438' : '#107c10',
+            fontWeight: '500'
+          }}>
+            {getCountdownMessage()}
+          </span>
+        )}
+      </div>
       <ProgressBar value={campaign.config.currentIndex || 0} max={campaign.total} />
 
       <div className="step-actions">

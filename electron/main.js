@@ -28,12 +28,21 @@ if (!gotTheLock) {
     });
 
     // --- Centralized Logging ---
-    function logToRenderer(level = 'info', ...args) {
-        const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
+    function logToRenderer(...args) {
+        const validLevels = ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'];
+        let level = 'info';
+        let messageArgs = args;
+
+        if (args.length > 0 && typeof args[0] === 'string' && validLevels.includes(args[0])) {
+            level = args.shift();
+            messageArgs = args;
+        }
+
+        const message = messageArgs.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' ');
         if (mainWindow && mainWindow.webContents) {
             mainWindow.webContents.send('log-message', message);
         }
-        console.log(...args);
+        console.log(...messageArgs);
         logger.log(level, message);
     }
 
@@ -167,21 +176,7 @@ if (!gotTheLock) {
             if (mainWindow) {
                 mainWindow.webContents.send('update-downloaded', info);
             }
-
-            // Show dialog to user asking if they want to restart now
-            dialog.showMessageBox(mainWindow, {
-                type: 'question',
-                title: 'Actualización disponible',
-                message: '¡Actualización descargada con éxito!',
-                detail: `La versión ${info.version} está lista para instalarse. ¿Desea reiniciar la aplicación ahora para aplicar la actualización?`,
-                buttons: ['Yes', 'No'],
-                defaultId: 0
-            }).then((result) => {
-                if (result.response === 0) {
-                    app.isQuitting = true; // Prevent exit confirmation dialog
-                    autoUpdater.quitAndInstall(true); // Silent installation
-                }
-            });
+            // Removed native dialog - React component handles the UI now
         });
 
         // Check for updates only in production
@@ -239,7 +234,16 @@ if (!gotTheLock) {
                     if (mainWindow) {
                         mainWindow.webContents.send('campaign-update', progress);
                     }
-                }, logToRenderer);
+                }, logToRenderer, (countdownData) => {
+                    // Send countdown updates to renderer
+                    // console.log('main.js: Received countdown update from whatsapp-logic:', countdownData);
+                    if (mainWindow) {
+                        //console.log('main.js: Sending countdown-update event to renderer');
+                        mainWindow.webContents.send('countdown-update', countdownData);
+                    } else {
+                        console.log('main.js: mainWindow not available for countdown update');
+                    }
+                });
             } else {
                 logToRenderer('info', 'main.js: Detected corrupt or incomplete campaign state. Clearing state.');
                 store.set('campaign', null);
@@ -347,7 +351,12 @@ if (!gotTheLock) {
                 if (mainWindow) {
                     mainWindow.webContents.send('campaign-update', progress);
                 }
-            }, logToRenderer);
+            }, logToRenderer, 0, null, (countdownData) => {
+                // Send countdown updates to renderer
+                if (mainWindow) {
+                    mainWindow.webContents.send('countdown-update', countdownData);
+                }
+            });
             logToRenderer('info', 'main.js: start-sending completed successfully');
         } catch (error) {
             logToRenderer('error', 'main.js: Error in start-sending:', error);
@@ -821,6 +830,69 @@ if (!gotTheLock) {
         return canceled ? null : filePaths[0];
     });
 
+    ipcMain.handle('save-file-dialog', async () => {
+        const { canceled, filePath } = await dialog.showSaveDialog({
+            filters: [{ name: 'Excel Files', extensions: ['xlsx'] }],
+            defaultPath: 'plantilla-wm.xlsx'
+        });
+        return canceled ? null : filePath;
+    });
+
+    ipcMain.handle('generate-excel-template', async () => {
+        try {
+            const XLSX = require('xlsx');
+
+            // Datos de ejemplo con códigos de país
+            const templateData = [
+                {
+                    item: '1',
+                    numero: '50255551234',
+                    nombre: 'Juan',
+                    apellido: 'Pérez'
+                },
+                {
+                    item: '2',
+                    numero: '50377771234',
+                    nombre: 'María',
+                    apellido: 'González'
+                },
+                {
+                    item: '3',
+                    numero: '50488881234',
+                    nombre: 'Carlos',
+                    apellido: 'López'
+                }
+            ];
+
+            // Crear workbook y worksheet
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(templateData);
+
+            // Agregar worksheet al workbook
+            XLSX.utils.book_append_sheet(wb, ws, 'Datos Limpios');
+
+            // Generar buffer
+            const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+            logToRenderer('info', 'main.js: Excel template generated successfully');
+            return { success: true, buffer: buffer };
+        } catch (error) {
+            logToRenderer('error', 'main.js: Failed to generate Excel template:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('save-excel-template', async (event, filePath, buffer) => {
+        try {
+            await fs.writeFile(filePath, Buffer.from(buffer));
+            logToRenderer('info', 'main.js: Excel template saved successfully to:', filePath);
+            return { success: true };
+        } catch (error) {
+            logToRenderer('error', 'main.js: Failed to save Excel template:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
     ipcMain.handle('open-media-dialog', async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog({
             properties: ['openFile'],
@@ -879,8 +951,8 @@ if (!gotTheLock) {
             } catch (error) {
                 excelPathToUse = defaultExcelPath;
             }
-            const headers = await whatsappLogic.getExcelHeaders(excelPathToUse);
-            return { success: true, headers, path: excelPathToUse };
+            const result = await whatsappLogic.getExcelHeaders(excelPathToUse);
+            return { success: true, ...result, path: excelPathToUse };
         } catch (error) {
             logToRenderer('error', 'Failed to get Excel headers:', error);
             return { success: false, error: error.message };
@@ -986,6 +1058,39 @@ if (!gotTheLock) {
             logToRenderer('error', 'main.js: Error recalculating days remaining:', error);
             logToRenderer('error', 'main.js: Error recalculating days remaining:', error);
             return { success: false, error: error.message };
+        }
+    });
+
+    // --- Update Control Handlers ---
+
+    // Handler to manually check for updates
+    ipcMain.handle('check-for-updates', () => {
+        if (app.isPackaged) {
+            logToRenderer('info', 'Manual update check requested');
+            autoUpdater.checkForUpdatesAndNotify();
+        } else {
+            logToRenderer('info', 'Update check skipped - development mode');
+        }
+    });
+
+    // Handler to manually download update
+    ipcMain.handle('download-update', () => {
+        if (app.isPackaged) {
+            logToRenderer('info', 'Manual update download requested');
+            autoUpdater.downloadUpdate();
+        } else {
+            logToRenderer('info', 'Update download skipped - development mode');
+        }
+    });
+
+    // Handler to manually install update
+    ipcMain.handle('install-update', () => {
+        if (app.isPackaged) {
+            logToRenderer('info', 'Manual update install requested');
+            app.isQuitting = true;
+            autoUpdater.quitAndInstall(true, true); // (isSilent, isForceRunAfter)
+        } else {
+            logToRenderer('info', 'Update install skipped - development mode');
         }
     });
 }

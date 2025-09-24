@@ -19,7 +19,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
   const [selectedFilePath, setSelectedFilePath] = useState(initialConfig.mediaPath ?? '');
   const [pausaCada, setPausaCada] = useState(initialConfig.pausaCada ?? 1);
   const [pausaMinima, setPausaMinima] = useState(initialConfig.pausaMinima ?? 3);
-  const [pausaMaxima, setPausaMaxima] = useState(initialConfig.pausaMaxima ?? 10);
+  const [pausaMaxima, setPausaMaxima] = useState(initialConfig.pausaMaxima ?? 5);
   const [sendDelay, setSendDelay] = useState(initialConfig.sendDelay ?? 5);
   const [maxRetries, setMaxRetries] = useState(initialConfig.maxRetries ?? 3);
   const [timeout, setTimeoutValue] = useState(initialConfig.timeout ?? 60000);
@@ -77,6 +77,9 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
 
   const handleNextClick = () => {
     const config = getCurrentConfig();
+    if (config.pausaMaxima < config.pausaMinima) {
+      config.pausaMinima = config.pausaMaxima - 1;
+    }
     onNext(config);
   };
 
@@ -191,7 +194,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
                   id="pausaMaxima-input"
                   type="number"
                   value={pausaMaxima}
-                  onChange={(e) => setPausaMaxima(Number(e.target.value))}
+                  onChange={(e) => setPausaMaxima(Math.max(2, Number(e.target.value)))}
                   min={2}
                 />
               </div>
@@ -232,7 +235,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
                   type="text"
                   value={supervisorNumbers}
                   onChange={(e) => setSupervisorNumbers(e.target.value)}
-                  placeholder="Ej: 50499887766, 50411223344"
+                  placeholder="Ej: 5049999999, 5049999999"
                   style={{ width: '100%' }}
                 />
               </div>
