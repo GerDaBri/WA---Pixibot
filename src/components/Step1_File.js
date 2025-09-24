@@ -84,7 +84,7 @@ function Step1_File({ onNext, initialConfig, electronAPI }) { // Accept electron
     <div className="step-container">
       <h2>Paso 1: Selección de Archivo</h2>
       <p>
-        Asegurese que la Base este en el formato correcto.{' '}
+        Verifique que el archivo seleccionado tenga en el formato correcto.{' '}
         <span
           style={{ color: '#0078d4', cursor: 'pointer', textDecoration: 'underline' }}
           onClick={handleDownloadTemplate}
