@@ -1,0 +1,26 @@
+{
+  "name": "elevatehub",
+  "displayName": "ElevateHub",
+  "description": "Advanced WhatsApp automation platform for businesses.",
+  "version": "1.0.0",
+  "productName": "ElevateHub",
+  "appId": "com.elevatehub.whatsappbot",
+  "author": "ElevateHub Inc.",
+  "license": "MIT",
+  "github": {
+    "owner": "GerDaBri",
+    "repo": "ElevateHub-Releases",
+    "releaseType": "release"
+  },
+  "colors": {
+    "primary": "#6366f1",
+    "secondary": "#8b5cf6",
+    "accent": "#f59e0b"
+  },
+  "assets": {
+    "icon": "icon.ico",
+    "logo": "logos/logo-elevatehub.png"
+  },
+  "title": "ElevateHub - WhatsApp Automation",
+  "theme": "elevatehub"
+}

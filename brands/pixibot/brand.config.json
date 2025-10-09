@@ -1,0 +1,26 @@
+{
+  "name": "pixibot",
+  "displayName": "Pixibot",
+  "description": "A WhatsApp bot application.",
+  "version": "1.0.3",
+  "productName": "Pixibot",
+  "appId": "com.yourcompany.whatsappbot",
+  "author": "",
+  "license": "ISC",
+  "github": {
+    "owner": "GerDaBri",
+    "repo": "WA---Pixibot",
+    "releaseType": "release"
+  },
+  "colors": {
+    "primary": "#007bff",
+    "secondary": "#6c757d",
+    "accent": "#28a745"
+  },
+  "assets": {
+    "icon": "icon.ico",
+    "logo": "logos/logo-principal.png"
+  },
+  "title": "Pixibot - WhatsAppBot",
+  "theme": "default"
+}

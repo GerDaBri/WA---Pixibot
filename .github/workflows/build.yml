@@ -3,7 +3,7 @@ name: Build/release
 on:
   push:
     tags:
-      - 'v*'
+      - '*-v*'
 
 jobs:
   release:
@@ -25,8 +25,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build React app
-        run: npm run webpack-build
+      - name: Extract brand from tag
+        id: extract_brand
+        run: |
+          # Extract brand name from tag (format: brand-v1.2.3)
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          BRAND_NAME=${TAG_NAME%-v*}
+          VERSION=${TAG_NAME#*-v}
+
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "brand_name=$BRAND_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          echo "Detected brand: $BRAND_NAME"
+          echo "Version: $VERSION"
+
+      - name: Validate brand configuration
+        run: |
+          BRAND_CONFIG="brands/${{ steps.extract_brand.outputs.brand_name }}/brand.config.json"
+          if [ ! -f "$BRAND_CONFIG" ]; then
+            echo "Error: Brand configuration not found: $BRAND_CONFIG"
+            exit 1
+          fi
+          echo "Brand configuration found: $BRAND_CONFIG"
+
+      - name: Build brand-specific app
+        run: node scripts/build-brand.js ${{ steps.extract_brand.outputs.brand_name }}
 
       - name: Build/release Electron app
         uses: samuelmeuli/action-electron-builder@v1
@@ -35,9 +59,8 @@ jobs:
           # (No need to define this secret in the repo settings)
           github_token: ${{ secrets.github_token }}
 
-          # If the commit is tagged with a version (e.g. "v1.0.0"),
-          # release the app after building
-          release: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          # Always release for brand tags
+          release: true
 
           # Skip npm build script to avoid duplication
           skip_build: true
