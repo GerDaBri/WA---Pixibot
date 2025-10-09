@@ -84,6 +84,16 @@ function applyBrandConfig(brandConfig) {
         // Copy brand assets
         fs.cpSync(brandAssetsDir, ASSETS_DIR, { recursive: true });
         console.log(`✓ Copied brand assets for ${brandConfig.displayName}`);
+
+        // Copy specific logo as logo-principal.png for consistent import
+        if (brandConfig.assets && brandConfig.assets.logo) {
+            const logoPath = path.join(brandAssetsDir, brandConfig.assets.logo);
+            const targetLogoPath = path.join(ASSETS_DIR, 'logos', 'logo-principal.png');
+            if (fs.existsSync(logoPath)) {
+                fs.copyFileSync(logoPath, targetLogoPath);
+                console.log(`✓ Copied brand logo for ${brandConfig.displayName}`);
+            }
+        }
     }
 
     // Copy brand index.html
