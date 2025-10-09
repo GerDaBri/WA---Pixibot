@@ -25,18 +25,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Extract brand from tag
+      - name: Extract brand and version from tag
         id: extract_brand
         run: |
           # Extract brand name from tag (format: brand-v1.2.3)
-          $tagName = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $tagName = $env:GITHUB_REF_NAME
           $brandName = $tagName -replace '-v.*', ''
           $version = $tagName -replace '.*-v', ''
-          
+
           "tag_name=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "brand_name=$brandName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          
+
           Write-Host "Detected brand: $brandName"
           Write-Host "Version: $version"
 
