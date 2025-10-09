@@ -42,12 +42,12 @@ jobs:
 
       - name: Validate brand configuration
         run: |
-          BRAND_CONFIG="brands/${{ steps.extract_brand.outputs.brand_name }}/brand.config.json"
-          if [ ! -f "$BRAND_CONFIG" ]; then
-            echo "Error: Brand configuration not found: $BRAND_CONFIG"
+          $brandConfig = "brands/${{ steps.extract_brand.outputs.brand_name }}/brand.config.json"
+          if (!(Test-Path $brandConfig)) {
+            Write-Host "Error: Brand configuration not found: $brandConfig"
             exit 1
-          fi
-          echo "Brand configuration found: $BRAND_CONFIG"
+          }
+          Write-Host "Brand configuration found: $brandConfig"
 
       - name: Build brand-specific app
         run: node scripts/build-brand.js ${{ steps.extract_brand.outputs.brand_name }}
