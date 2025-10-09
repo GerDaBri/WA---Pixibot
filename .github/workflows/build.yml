@@ -29,16 +29,16 @@ jobs:
         id: extract_brand
         run: |
           # Extract brand name from tag (format: brand-v1.2.3)
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          BRAND_NAME=${TAG_NAME%-v*}
-          VERSION=${TAG_NAME#*-v}
-
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          echo "brand_name=$BRAND_NAME" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          echo "Detected brand: $BRAND_NAME"
-          echo "Version: $VERSION"
+          $tagName = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $brandName = $tagName -replace '-v.*', ''
+          $version = $tagName -replace '.*-v', ''
+          
+          "tag_name=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "brand_name=$brandName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          
+          Write-Host "Detected brand: $brandName"
+          Write-Host "Version: $version"
 
       - name: Validate brand configuration
         run: |
