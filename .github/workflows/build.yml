@@ -49,8 +49,94 @@ jobs:
           }
           Write-Host "Brand configuration found: $brandConfig"
 
-      - name: Build brand-specific app
-        run: node scripts/build-brand.js ${{ steps.extract_brand.outputs.brand_name }}
+      - name: Apply brand configuration
+        run: |
+          $brandName = "${{ steps.extract_brand.outputs.brand_name }}"
+          $brandConfigPath = "brands/$brandName/brand.config.json"
+          
+          Write-Host "🏷️  Applying brand configuration for: $brandName"
+          
+          # Load brand configuration
+          $brandConfig = Get-Content $brandConfigPath | ConvertFrom-Json
+          Write-Host "✓ Loaded configuration for $($brandConfig.displayName)"
+          
+          # Load package.json
+          $packageJson = Get-Content "package.json" | ConvertFrom-Json
+          
+          # Apply brand-specific configuration to package.json
+          $packageJson.name = $brandConfig.name
+          $packageJson.version = $brandConfig.version
+          $packageJson.description = $brandConfig.description
+          $packageJson.author = $brandConfig.author
+          $packageJson.license = $brandConfig.license
+          
+          # Update build configuration
+          $packageJson.build.appId = $brandConfig.appId
+          $packageJson.build.productName = $brandConfig.productName
+          $packageJson.build.publish.owner = $brandConfig.github.owner
+          $packageJson.build.publish.repo = $brandConfig.github.repo
+          $packageJson.build.publish.releaseType = $brandConfig.github.releaseType
+          
+          # Write modified package.json
+          $packageJson | ConvertTo-Json -Depth 10 | Set-Content "package.json"
+          Write-Host "✓ Applied brand configuration to package.json"
+          Write-Host "  - Product Name: $($brandConfig.productName)"
+          Write-Host "  - App ID: $($brandConfig.appId)"
+          Write-Host "  - Repository: $($brandConfig.github.owner)/$($brandConfig.github.repo)"
+
+      - name: Copy brand assets
+        run: |
+          $brandName = "${{ steps.extract_brand.outputs.brand_name }}"
+          $brandAssetsDir = "brands/$brandName/assets"
+          $assetsDir = "assets"
+          
+          Write-Host "📦 Copying brand assets..."
+          
+          # Remove existing assets
+          if (Test-Path $assetsDir) {
+            Remove-Item -Path $assetsDir -Recurse -Force
+          }
+          
+          # Copy brand assets
+          if (Test-Path $brandAssetsDir) {
+            Copy-Item -Path $brandAssetsDir -Destination $assetsDir -Recurse
+            Write-Host "✓ Copied brand assets"
+            
+            # Load brand config to get logo path
+            $brandConfigPath = "brands/$brandName/brand.config.json"
+            $brandConfig = Get-Content $brandConfigPath | ConvertFrom-Json
+            
+            # Copy specific logo as logo-principal.png for consistent import
+            if ($brandConfig.assets.logo) {
+              $logoPath = Join-Path $brandAssetsDir $brandConfig.assets.logo
+              $targetLogoPath = "assets/logos/logo-principal.png"
+              if (Test-Path $logoPath) {
+                Copy-Item -Path $logoPath -Destination $targetLogoPath -Force
+                Write-Host "✓ Copied brand logo"
+              }
+            }
+          } else {
+            Write-Host "Warning: Brand assets directory not found: $brandAssetsDir"
+          }
+
+      - name: Copy brand index.html
+        run: |
+          $brandName = "${{ steps.extract_brand.outputs.brand_name }}"
+          $brandIndexHtml = "brands/$brandName/index.html"
+          $targetIndexHtml = "src/index.html"
+          
+          if (Test-Path $brandIndexHtml) {
+            Copy-Item -Path $brandIndexHtml -Destination $targetIndexHtml -Force
+            Write-Host "✓ Copied brand index.html"
+          } else {
+            Write-Host "Warning: Brand index.html not found: $brandIndexHtml"
+          }
+
+      - name: Build webpack
+        run: |
+          Write-Host "🚀 Building webpack bundle..."
+          npm run webpack-build
+          Write-Host "✓ Webpack build completed"
 
       - name: Build/release Electron app
         uses: samuelmeuli/action-electron-builder@v1
