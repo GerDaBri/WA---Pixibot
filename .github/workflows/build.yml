@@ -138,18 +138,48 @@ jobs:
           npm run webpack-build
           Write-Host "✓ Webpack build completed"
 
-      - name: Build/release Electron app
+      - name: Determine GitHub token
+        id: determine_token
+        run: |
+          $brandName = "${{ steps.extract_brand.outputs.brand_name }}"
+          Write-Host "🔑 Determining GitHub token for brand: $brandName"
+          
+          # Map brand names to their respective token secrets
+          # Pixibot uses the default github_token (same repo)
+          # Other brands need their own tokens for cross-repo publishing
+          switch ($brandName) {
+            "pixibot" {
+              "use_custom_token=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+              Write-Host "✓ Using default GITHUB_TOKEN for Pixibot"
+            }
+            "elevatehub" {
+              "use_custom_token=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+              "token_secret=ELEVATEHUB_RELEASE_TOKEN" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+              Write-Host "✓ Using ELEVATEHUB_RELEASE_TOKEN for ElevateHub"
+            }
+            default {
+              Write-Host "⚠️  Unknown brand: $brandName"
+              Write-Host "   Add token mapping in workflow for this brand"
+              exit 1
+            }
+          }
+
+      - name: Build/release Electron app (default token)
+        if: steps.determine_token.outputs.use_custom_token == 'false'
         uses: samuelmeuli/action-electron-builder@v1
         with:
           # GitHub token, automatically provided to the action
-          # (No need to define this secret in the repo settings)
           github_token: ${{ secrets.github_token }}
-
-          # Always release for brand tags
           release: true
-
-          # Skip npm build script to avoid duplication
           skip_build: true
+          args: --publish=always
 
-          # Use electron-builder directly with publish flag
+      - name: Build/release Electron app (custom token)
+        if: steps.determine_token.outputs.use_custom_token == 'true'
+        uses: samuelmeuli/action-electron-builder@v1
+        with:
+          # Use brand-specific token for cross-repo publishing
+          github_token: ${{ secrets[steps.determine_token.outputs.token_secret] }}
+          release: true
+          skip_build: true
           args: --publish=always
