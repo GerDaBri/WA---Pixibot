@@ -13,6 +13,69 @@ const whatsappLogic = require('../bot/whatsapp-logic');
 
 let mainWindow;
 
+// --- License Validation Helper Functions ---
+
+// Función mejorada para validar y convertir fecha del servidor (maneja YYYY-MM-DD y YYYY-MM-DD HH:mm:ss)
+function parseServerDate(dateString) {
+    if (!dateString || typeof dateString !== 'string') {
+        throw new Error('Fecha inválida del servidor');
+    }
+    
+    // El servidor puede enviar fechas en formato "YYYY-MM-DD" o "YYYY-MM-DD HH:mm:ss"
+    // Intentar ambos formatos
+    let date;
+    
+    if (dateString.includes(' ')) {
+        // Formato completo: "YYYY-MM-DD HH:mm:ss"
+        date = new Date(dateString);
+    } else {
+        // Formato corto: "YYYY-MM-DD" - agregar tiempo por defecto
+        date = new Date(dateString + 'T00:00:00.000Z');
+    }
+    
+    if (isNaN(date.getTime())) {
+        throw new Error('Formato de fecha inválido del servidor');
+    }
+    
+    return date;
+}
+
+// Función mejorada para validar server_time (maneja timestamp Unix y string ISO 8601)
+function validateServerTime(serverTimeValue) {
+    if (serverTimeValue === null || serverTimeValue === undefined) {
+        throw new Error('Server time inválido');
+    }
+    
+    let serverDate;
+    if (typeof serverTimeValue === 'number') {
+        // Manejar timestamp Unix (segundos desde epoch)
+        serverDate = new Date(serverTimeValue * 1000);
+    } else if (typeof serverTimeValue === 'string') {
+        // Manejar string ISO 8601
+        serverDate = new Date(serverTimeValue);
+    } else {
+        throw new Error('Server time debe ser número (timestamp) o string ISO 8601');
+    }
+    
+    if (isNaN(serverDate.getTime())) {
+        throw new Error('Formato de server time inválido');
+    }
+    
+    return serverDate.toISOString();
+}
+
+// Función para calcular días restantes de manera segura
+function calculateDaysRemaining(endDate, currentDate = new Date()) {
+    if (!(endDate instanceof Date) || isNaN(endDate.getTime())) {
+        return null;
+    }
+    if (!(currentDate instanceof Date) || isNaN(currentDate.getTime())) {
+        return null;
+    }
+    const timeDiff = endDate.getTime() - currentDate.getTime();
+    return Math.max(0, Math.floor(timeDiff / (24 * 60 * 60 * 1000)));
+}
+
 // --- Single Instance Lock ---
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -527,30 +590,48 @@ if (!gotTheLock) {
 
                                 // Calculate days remaining for login response
                                 let loginDaysRemaining = response.license.days_remaining;
+
+                                // Si no viene del servidor, calcularlo
                                 if (loginDaysRemaining === undefined || loginDaysRemaining === null) {
-                                    const currentTime = Math.floor(Date.now() / 1000);
-                                    // Parse date string properly - handle format "2025-09-18 13:54:02"
-                                    const endDateStr = response.license.end_date.replace(' ', 'T'); // Convert to ISO format
-                                    const endTime = new Date(endDateStr).getTime() / 1000;
-
-                                    // Calculate days remaining more accurately - use floor instead of ceil
-                                    const timeDiff = endTime - currentTime;
-                                    loginDaysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
-
-                                    logToRenderer('info', 'main.js: Login - calculated days remaining:', loginDaysRemaining, 'currentTime:', currentTime, 'endTime:', endTime, 'timeDiff:', timeDiff);
+                                    try {
+                                        const endDate = parseServerDate(response.license?.end_date);
+                                        const serverTime = new Date(validateServerTime(response.server_time));
+                                        loginDaysRemaining = calculateDaysRemaining(endDate, serverTime);
+                                        logToRenderer('info', 'main.js: Login - calculated days remaining:', loginDaysRemaining);
+                                    } catch (error) {
+                                        console.warn('Error calculando días restantes en login:', error.message);
+                                        loginDaysRemaining = null;
+                                    }
                                 } else {
                                     logToRenderer('info', 'main.js: Login - server provided days remaining:', loginDaysRemaining);
                                 }
 
                                 // Store token, license and user data locally with fresh days_remaining
                                 const licenseStore = new Store({ name: 'license-data' });
-                                const licenseToStore = { ...response.license, days_remaining: loginDaysRemaining };
+
+                                // Reemplazar almacenamiento actual con manejo completo de campos
+                                const licenseToStore = {
+                                    ...response.license,
+                                    type: response.license?.type || null,
+                                    start_date: response.license?.start_date || null,
+                                    end_date: response.license?.end_date || null,
+                                    status: response.license?.status || 'unknown',
+                                    days_remaining: loginDaysRemaining,
+                                    is_expired: response.license?.is_expired || false
+                                };
+
                                 logToRenderer('info', 'main.js: Storing login data - token:', !!response.token, 'license status:', response.license.status, 'days remaining:', loginDaysRemaining);
                                 licenseStore.set('auth_token', response.token);
                                 licenseStore.set('license', licenseToStore);
                                 licenseStore.set('user', response.user);
-                                licenseStore.set('server_time', response.server_time);
-                                licenseStore.set('last_check', Date.now());
+
+                                // Almacenar indicadores raíz adicionales
+                                licenseStore.set('license_suspended', response.suspended || false);
+                                licenseStore.set('license_expired', response.expired || false);
+                                licenseStore.set('server_time', validateServerTime(response.server_time));
+                                licenseStore.set('last_validation', Date.now());
+                                licenseStore.set('last_check', Date.now()); // Agregar timestamp de última verificación
+                                licenseStore.set('device_unique_id', response.device_unique_id || null); // Agregar almacenamiento del device_unique_id
                                 logToRenderer('info', 'main.js: Login data stored successfully with fresh days_remaining');
 
                                 // Return response with calculated days_remaining
@@ -591,7 +672,7 @@ if (!gotTheLock) {
             const token = licenseStore.get('auth_token');
             const cachedLicense = licenseStore.get('license');
             const serverTime = licenseStore.get('server_time');
-            const lastCheck = licenseStore.get('last_check');
+            const lastCheck = licenseStore.get('last_check') || licenseStore.get('last_validation');
 
             // No token or no license data stored
             if (!token) {
@@ -639,37 +720,88 @@ if (!gotTheLock) {
                         res.on('end', () => {
                             const serverResponseEnd = Date.now();
                             logToRenderer('info', `main.js: Server response received, total time: ${serverResponseEnd - serverRequestStart}ms`);
+
+                            // ENHANCED DIAGNOSTIC LOGGING - Validate response before parsing
+                            const responseTimestamp = new Date().toISOString();
+                            logToRenderer('info', `main.js: DIAGNOSTIC - Response received at: ${responseTimestamp}`);
+                            logToRenderer('info', `main.js: DIAGNOSTIC - Response status code: ${res.statusCode}`);
+                            logToRenderer('info', `main.js: DIAGNOSTIC - Content-Type: ${res.headers['content-type']}`);
+                            logToRenderer('info', `main.js: DIAGNOSTIC - Response data length: ${data.length} bytes`);
+                            logToRenderer('info', `main.js: DIAGNOSTIC - Response headers:`, res.headers);
+                            logToRenderer('info', `main.js: DIAGNOSTIC - Response data preview (first 200 chars): ${data.substring(0, 200)}`);
+
+                            // Check if response looks like HTML error page
+                            const isHtmlResponse = data.trim().startsWith('<') && data.includes('</html>');
+                            if (isHtmlResponse) {
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Server returned HTML instead of JSON! This indicates a server error.`);
+                                logToRenderer('error', `main.js: DIAGNOSTIC - HTML Response (first 500 chars): ${data.substring(0, 500)}`);
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Full response length: ${data.length}, suggesting server error page`);
+                            }
+
+                            // Additional diagnostic checks for common issues
+                            if (data.length === 0) {
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Empty response body received - possible network issue`);
+                            }
+
+                            if (res.statusCode >= 500) {
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Server error (5xx) - backend service issue`);
+                            }
+
+                            if (res.statusCode === 404) {
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Endpoint not found (404) - check server URL and endpoint path`);
+                            }
+
+                            if (res.statusCode === 401 || res.statusCode === 403) {
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Authentication/Authorization error (${res.statusCode}) - check token validity`);
+                            }
+
                             try {
                                 const response = JSON.parse(data);
-                                if (res.statusCode === 200 && response.valid && response.license) {
-                                    // Validate license status
-                                    const licenseStatus = response.license.status;
 
+                                // DIAGNOSTIC LOGGING - Validate parsed response structure
+                                logToRenderer('info', `main.js: DIAGNOSTIC - Parsed response keys: ${Object.keys(response || {}).join(', ')}`);
+                                logToRenderer('info', `main.js: DIAGNOSTIC - Response.valid: ${response?.valid} (type: ${typeof response?.valid})`);
+                                logToRenderer('info', `main.js: DIAGNOSTIC - Response.license exists: ${!!response?.license}`);
+                                logToRenderer('info', `main.js: DIAGNOSTIC - Response.license keys: ${response?.license ? Object.keys(response.license).join(', ') : 'N/A'}`);
+
+                                if (res.statusCode === 200 && response.valid && response.license) {
                                     // Handle new response format with detailed license info
-                                    const currentLicenseStatus = response.license?.status;
                                     const isExpired = response.license?.is_expired || false;
 
-                                    // Calculate days remaining if not provided by server
+                                    // También mejorar el manejo de days_remaining considerando que puede no venir
                                     let daysRemaining = response.license?.days_remaining;
+
+                                    // Si no viene del servidor, calcularlo
                                     if (daysRemaining === undefined || daysRemaining === null) {
-                                        const currentTime = Math.floor(Date.now() / 1000);
-                                        // Parse date string properly - handle format "2025-09-18 13:54:02"
-                                        const endDateStr = response.license.end_date.replace(' ', 'T'); // Convert to ISO format
-                                        const endTime = new Date(endDateStr).getTime() / 1000;
-
-                                        // Calculate days remaining more accurately - use floor instead of ceil
-                                        const timeDiff = endTime - currentTime;
-                                        daysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
-
-                                        logToRenderer('info', 'main.js: License check - calculated days remaining locally:', daysRemaining, 'end_date:', response.license.end_date);
+                                        try {
+                                            const endDate = parseServerDate(response.license?.end_date);
+                                            const serverTime = new Date(validateServerTime(response.server_time));
+                                            daysRemaining = calculateDaysRemaining(endDate, serverTime);
+                                        } catch (error) {
+                                            console.warn('Error calculando días restantes:', error.message);
+                                            daysRemaining = null;
+                                        }
                                     }
     
-                                    if (currentLicenseStatus === 'active' && !isExpired) {
+                                    // Manejar campos faltantes con valores por defecto seguros
+                                    const isGloballySuspended = response.suspended || false;
+                                    const isGloballyExpired = response.expired || false;
+                                    const licenseStatus = response.license?.status || 'unknown';
+                                    const isLicenseExpired = response.license?.is_expired || false;
+
+                                    // Si no viene 'valid' del servidor, determinarlo basado en status
+                                    const isValid = response.valid !== false && // Si no viene, asumir válido
+                                                    !isGloballySuspended &&
+                                                    !isGloballyExpired &&
+                                                    licenseStatus === 'active' &&
+                                                    !isLicenseExpired;
+
+                                    if (isValid && response.license) {
                                         // Update cache with fresh calculated days_remaining
                                         const licenseToStore = { ...response.license, days_remaining: daysRemaining };
                                         licenseStore.set('license', licenseToStore);
                                         licenseStore.set('user', response.user);
-                                        licenseStore.set('server_time', response.server_time);
+                                        licenseStore.set('server_time', validateServerTime(response.server_time));
                                         licenseStore.set('last_check', Date.now());
                                         logToRenderer('info', 'main.js: License check - stored fresh days_remaining:', daysRemaining);
                                         resolve({
@@ -679,7 +811,7 @@ if (!gotTheLock) {
                                             reason: 'active',
                                             message: `Licencia válida - ${daysRemaining} días restantes`
                                         });
-                                    } else if (currentLicenseStatus === 'suspended') {
+                                    } else if (isGloballySuspended || licenseStatus === 'suspended') {
                                         resolve({
                                             valid: false,
                                             reason: 'suspended',
@@ -687,7 +819,7 @@ if (!gotTheLock) {
                                             license: { ...response.license, days_remaining: daysRemaining },
                                             user: response.user
                                         });
-                                    } else if (currentLicenseStatus === 'expired' || isExpired) {
+                                    } else if (isGloballyExpired || licenseStatus === 'expired' || isLicenseExpired) {
                                         resolve({
                                             valid: false,
                                             reason: 'expired',
@@ -705,15 +837,58 @@ if (!gotTheLock) {
                                         });
                                     }
                                 } else {
+                                    // DIAGNOSTIC LOGGING - Detailed analysis of why response is considered invalid
+                                    logToRenderer('error', `main.js: DIAGNOSTIC - Response considered invalid. Debugging details:`);
+                                    logToRenderer('error', `main.js: DIAGNOSTIC - Status code: ${res.statusCode} (expected: 200)`);
+                                    logToRenderer('error', `main.js: DIAGNOSTIC - Response.valid: ${response?.valid} (expected: true)`);
+                                    logToRenderer('error', `main.js: DIAGNOSTIC - Response.license exists: ${!!response?.license} (expected: true)`);
+                                    logToRenderer('error', `main.js: DIAGNOSTIC - Full response object:`, response);
+
+                                    // Additional diagnostics for common issues
+                                    if (res.statusCode !== 200) {
+                                        logToRenderer('error', `main.js: DIAGNOSTIC - HTTP error code ${res.statusCode} indicates server-side issue`);
+                                    }
+                                    if (response?.valid === false) {
+                                        logToRenderer('error', `main.js: DIAGNOSTIC - Server explicitly returned valid: false`);
+                                        logToRenderer('error', `main.js: DIAGNOSTIC - Server message: ${response?.message || 'No message provided'}`);
+                                    }
+                                    if (!response?.license && response?.valid !== false) {
+                                        logToRenderer('error', `main.js: DIAGNOSTIC - Missing license object in response`);
+                                    }
+
+                                    // Check if server returned 403 with valid: false - treat as no_license to allow login
+                                    const is403WithValidFalse = res.statusCode === 403 && response?.valid === false;
+
                                     resolve({
                                         valid: false,
-                                        reason: 'server_invalid',
-                                        message: 'Respuesta inválida del servidor'
+                                        reason: is403WithValidFalse ? 'no_license' : 'server_invalid',
+                                        message: is403WithValidFalse ? 'Verifique sus credenciales para acceder' : 'Respuesta inválida del servidor',
+                                        diagnostic: {
+                                            statusCode: res.statusCode,
+                                            hasValidField: 'valid' in response,
+                                            validValue: response?.valid,
+                                            hasLicense: !!response?.license,
+                                            responseKeys: Object.keys(response || {}),
+                                            is403WithValidFalse: is403WithValidFalse
+                                        }
                                     });
                                 }
                             } catch (e) {
+                                // DIAGNOSTIC LOGGING - JSON parsing errors
+                                logToRenderer('error', `main.js: DIAGNOSTIC - JSON parsing failed. This is likely the root cause of server_invalid!`);
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Parse error: ${e.message}`);
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Raw data that failed to parse (first 500 chars): ${data.substring(0, 500)}`);
+                                logToRenderer('error', `main.js: DIAGNOSTIC - Data length: ${data.length}, Content-Type: ${res.headers['content-type']}`);
+
+                                // Check if it's HTML error response
+                                if (data.trim().startsWith('<')) {
+                                    logToRenderer('error', `main.js: DIAGNOSTIC - Server returned HTML error page instead of JSON`);
+                                    logToRenderer('error', `main.js: DIAGNOSTIC - This usually means: 500 Internal Server Error, 404 Not Found, or authentication failure`);
+                                }
+
                                 // If server check fails, use cached license validation
                                 const validation = validateCachedLicense(cachedLicense, licenseStore);
+                                logToRenderer('info', `main.js: DIAGNOSTIC - Falling back to cached license validation:`, validation);
                                 resolve(validation);
                             }
                         });
@@ -766,58 +941,65 @@ if (!gotTheLock) {
             };
         }
 
-        const currentTime = Math.floor(Date.now() / 1000);
-        // Parse date string properly - handle format "2025-09-18 13:54:02"
-        const endDateStr = cachedLicense.end_date.replace(' ', 'T'); // Convert to ISO format
-        const endTime = new Date(endDateStr).getTime() / 1000;
+        // Corregir manejo de fechas en validación de caché
+        try {
+            const endDate = parseServerDate(cachedLicense.end_date);
+            const currentTime = new Date();
+            const isExpired = cachedLicense.is_expired ||
+                             calculateDaysRemaining(endDate, currentTime) === 0;
 
-        // Calculate days remaining more accurately - use floor instead of ceil
-        let daysRemaining = cachedLicense.days_remaining;
-        if (!daysRemaining) {
-            const timeDiff = endTime - currentTime;
-            daysRemaining = Math.max(0, Math.floor(timeDiff / (24 * 60 * 60)));
-        }
+            // Usar indicadores de caché también
+            const isSuspended = cachedLicense.status === 'suspended' ||
+                               licenseStore.get('license_suspended', false);
 
-        // Check license status first
-        const licenseStatus = cachedLicense.status;
+            if (isSuspended) {
+                return {
+                    valid: false,
+                    reason: 'suspended',
+                    message: 'Licencia suspendida',
+                    license: cachedLicense,
+                    user: licenseStore.get('user')
+                };
+            }
 
-        if (licenseStatus === 'suspended') {
+            if (isExpired) {
+                return {
+                    valid: false,
+                    reason: 'expired',
+                    message: 'Licencia expirada',
+                    license: cachedLicense,
+                    user: licenseStore.get('user')
+                };
+            }
+
+            if (cachedLicense.status === 'active') {
+                const daysRemaining = calculateDaysRemaining(endDate, currentTime);
+                return {
+                    valid: true,
+                    license: { ...cachedLicense, days_remaining: daysRemaining },
+                    user: licenseStore.get('user'),
+                    reason: 'active',
+                    message: `Licencia válida - ${daysRemaining} días restantes`
+                };
+            }
+
             return {
                 valid: false,
-                reason: 'suspended',
-                message: 'Licencia suspendida',
+                reason: 'invalid_status',
+                message: 'Estado de licencia inválido',
+                license: cachedLicense,
+                user: licenseStore.get('user')
+            };
+        } catch (error) {
+            console.warn('Error validando licencia en caché:', error.message);
+            return {
+                valid: false,
+                reason: 'validation_error',
+                message: 'Error interno de validación',
                 license: cachedLicense,
                 user: licenseStore.get('user')
             };
         }
-
-        if (licenseStatus === 'expired' || cachedLicense.is_expired || currentTime >= endTime) {
-            return {
-                valid: false,
-                reason: 'expired',
-                message: 'Licencia expirada',
-                license: cachedLicense,
-                user: licenseStore.get('user')
-            };
-        }
-
-        if (licenseStatus === 'active' && currentTime < endTime) {
-            return {
-                valid: true,
-                license: cachedLicense,
-                user: licenseStore.get('user'),
-                reason: 'active',
-                message: `Licencia válida - ${daysRemaining} días restantes`
-            };
-        }
-
-        return {
-            valid: false,
-            reason: 'invalid_status',
-            message: 'Estado de licencia inválido',
-            license: cachedLicense,
-            user: licenseStore.get('user')
-        };
     }
 
     // --- File System Handlers ---

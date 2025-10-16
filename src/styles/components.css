@@ -105,5 +105,194 @@
   white-space: pre;
 }
 
+/* Campaign finished banner styles */
+.campaign-finished-banner {
+  background: linear-gradient(135deg, #e8f5e8 0%, #ffffff 100%);
+  border: 1px solid rgba(16, 124, 16, 0.2);
+  border-radius: 16px;
+  padding: calc(var(--spacing-unit) * 3);
+  margin: calc(var(--spacing-unit) * 2) 0 calc(var(--spacing-unit) * 2) 0;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(16, 124, 16, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.success-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--spacing-unit) * 1.5);
+  margin-bottom: calc(var(--spacing-unit) * 3);
+  padding: calc(var(--spacing-unit) * 2);
+}
+
+.success-icon {
+  font-size: 28px;
+  color: #107c10;
+  animation: successPulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 2px 4px rgba(16, 124, 16, 0.2));
+}
+
+@keyframes successPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.success-indicator h3 {
+  color: #107c10;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  text-shadow: 0 2px 4px rgba(16, 124, 16, 0.15);
+}
+
+.campaign-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: calc(var(--spacing-unit) * 2);
+  margin-top: calc(var(--spacing-unit) * 2);
+}
+
+.stat-item {
+  background: rgba(255, 255, 255, 0.9);
+  padding: calc(var(--spacing-unit) * 1.5);
+  border-radius: 12px;
+  border: 1px solid rgba(16, 124, 16, 0.15);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(16, 124, 16, 0.08);
+}
+
+.stat-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(16, 124, 16, 0.15);
+  border-color: rgba(16, 124, 16, 0.25);
+}
+
+.stat-label {
+  font-weight: 600;
+  color: #666;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-value {
+  font-weight: 700;
+  color: #333;
+  font-size: 14px;
+  transition: color 0.3s ease;
+}
+
+.stat-value.success {
+  color: #107c10;
+  font-weight: 800;
+  position: relative;
+}
+
+.stat-value.success::after {
+  content: '✓';
+  margin-left: 4px;
+  font-size: 12px;
+}
+
+.finished-message {
+  text-align: center;
+  padding: calc(var(--spacing-unit) * 2);
+  background: linear-gradient(135deg, rgba(16, 124, 16, 0.08) 0%, rgba(16, 124, 16, 0.05) 100%);
+  border-radius: 12px;
+  border: 2px solid rgba(16, 124, 16, 0.2);
+  margin-top: calc(var(--spacing-unit) * 1.5);
+  position: relative;
+}
+
+.finished-message p {
+  margin: 0;
+  color: #107c10;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.finished-message p::before {
+  content: '🎉';
+  font-size: 14px;
+  animation: celebrate 2s ease-in-out infinite;
+}
+
+@keyframes celebrate {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-10deg) scale(1.1); }
+  75% { transform: rotate(10deg) scale(1.1); }
+}
+
+/* Responsive adjustments for campaign finished banner */
+@media (max-width: 768px) {
+  .campaign-finished-banner {
+    padding: calc(var(--spacing-unit) * 1.5);
+    margin: var(--spacing-unit) 0 calc(var(--spacing-unit) * 1.5) 0;
+    border-radius: 12px;
+  }
+
+  .campaign-stats {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-unit);
+    margin-top: calc(var(--spacing-unit) * 1.5);
+  }
+
+  .stat-item {
+    padding: var(--spacing-unit);
+    border-radius: 8px;
+  }
+
+  .stat-value {
+    font-size: 14px;
+  }
+
+  .success-indicator {
+    flex-direction: column;
+    gap: var(--spacing-unit);
+    padding: var(--spacing-unit);
+  }
+
+  .success-icon {
+    font-size: 36px;
+  }
+
+  .success-indicator h3 {
+    font-size: 14px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .campaign-finished-banner {
+    padding: var(--spacing-unit);
+    border-radius: 8px;
+  }
+
+  .success-icon {
+    font-size: 24px;
+  }
+
+  .success-indicator h3 {
+    font-size: 14px;
+  }
+
+  .stat-label {
+    font-size: 10px;
+  }
+
+  .stat-value {
+    font-size: 12px;
+  }
+}
+
 /* We can add some overrides for Fluent UI components if needed,
-   but for now, let's focus on layout and structure. */
+    but for now, let's focus on layout and structure. */

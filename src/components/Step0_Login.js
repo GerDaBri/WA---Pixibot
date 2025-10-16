@@ -35,12 +35,9 @@ const useStyles = makeStyles({
     },
     error: {
         color: '#d13438',
-        fontSize: '14px',
+        fontSize: '12px',
         textAlign: 'center',
-        backgroundColor: '#fed7d9',
-        padding: '8px',
-        borderRadius: '4px',
-        border: '1px solid #f3aeb3',
+        
     },
     success: {
         color: '#107c10',

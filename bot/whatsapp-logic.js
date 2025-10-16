@@ -746,6 +746,214 @@ function formatearTiempo(ms) {
 }
 
 /**
+ * Procesa variables del mensaje con los datos del contacto.
+ * @param {string} messageTemplate - Plantilla del mensaje con variables como {nombre}, {telefono}, etc.
+ * @param {object} contactData - Datos del contacto para reemplazar las variables.
+ * @param {object} options - Opciones adicionales para el procesamiento.
+ * @returns {string} Mensaje procesado con variables reemplazadas.
+ */
+function processMessageVariables(messageTemplate, contactData, options = {}) {
+    const logPrefix = 'Message Variable Processing';
+
+    try {
+        if (!messageTemplate || typeof messageTemplate !== 'string') {
+            logger?.warn(`${logPrefix}: Plantilla de mensaje inválida`);
+            return messageTemplate || '';
+        }
+
+        if (!contactData || typeof contactData !== 'object') {
+            logger?.warn(`${logPrefix}: Datos de contacto inválidos`);
+            return messageTemplate;
+        }
+
+        // Crear una copia segura de los datos del contacto
+        const safeContactData = { ...contactData };
+
+        // Función para reemplazar variables en el mensaje
+        // Soporta ambos formatos: {variable} y {{variable}}
+        const processedMessage = messageTemplate.replace(/{{?(\w+)}?}/g, (match, key) => {
+            const value = safeContactData[key];
+
+            if (value === undefined || value === null) {
+                logger?.warn(`${logPrefix}: Variable '${key}' no encontrada en datos del contacto`);
+                console.log(`${logPrefix}: DEBUG - Variables disponibles en contacto:`, Object.keys(safeContactData));
+                return match; // Devolver la variable original si no se encuentra
+            }
+
+            // Convertir a string y limpiar espacios
+            const stringValue = String(value).trim();
+
+            logger?.info(`${logPrefix}: Variable '${key}' reemplazada: '${match}' -> '${stringValue}'`);
+            return stringValue;
+        });
+
+        // Log del procesamiento exitoso
+        logger?.info(`${logPrefix}: Mensaje procesado exitosamente. Variables reemplazadas: ${messageTemplate !== processedMessage ? 'Sí' : 'No'}`);
+
+        return processedMessage;
+
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error procesando variables del mensaje: ${error.message}`);
+        console.error('Error procesando variables del mensaje:', error);
+
+        // En caso de error, devolver el mensaje original
+        return messageTemplate;
+    }
+}
+
+/**
+ * Envía notificaciones a números supervisores cuando inicia una nueva campaña.
+ * @param {object} campaignConfig - Configuración de la campaña.
+ * @param {Array} contacts - Lista de contactos de la campaña.
+ * @param {function} logCallback - Función de callback para logging.
+ * @returns {Promise<boolean>} True si las notificaciones se enviaron exitosamente, false en caso contrario.
+ */
+async function sendCampaignStartNotification(campaignConfig, contacts, logCallback) {
+    const logPrefix = 'Campaign Start Notification';
+
+    try {
+        // Validar parámetros de entrada
+        if (!campaignConfig || typeof campaignConfig !== 'object') {
+            logger?.error(`${logPrefix}: Configuración de campaña inválida`);
+            return false;
+        }
+
+        if (!Array.isArray(contacts) || contacts.length === 0) {
+            logger?.error(`${logPrefix}: Lista de contactos inválida o vacía`);
+            return false;
+        }
+
+        const { supervisorNumbers, message } = campaignConfig;
+
+        // Verificar que hay números supervisores definidos
+        if (!supervisorNumbers || !Array.isArray(supervisorNumbers) || supervisorNumbers.length === 0) {
+            logger?.info(`${logPrefix}: No hay números supervisores definidos, omitiendo notificaciones`);
+            if (logCallback) logCallback('whatsapp-logic: No hay números supervisores definidos para notificaciones');
+            return true; // No es un error, solo no hay supervisores
+        }
+
+        // Encontrar el primer contacto válido
+        let firstValidContact = null;
+        let firstValidContactIndex = -1;
+
+        for (let i = 0; i < contacts.length; i++) {
+            const contact = contacts[i];
+            const numeroKey = Object.keys(contact).find(key => key.toLowerCase() === 'numero');
+            const numero = numeroKey ? contact[numeroKey] : null;
+
+            if (numero && numero.toString().length > 6) {
+                firstValidContact = contact;
+                firstValidContactIndex = i;
+                break;
+            }
+        }
+
+        if (!firstValidContact) {
+            logger?.warn(`${logPrefix}: No se encontró ningún contacto válido para el ejemplo`);
+            if (logCallback) logCallback('whatsapp-logic: No se encontró contacto válido para notificación de inicio');
+            return false;
+        }
+
+        // Crear mensaje de notificación usando el primer contacto como ejemplo
+        const notificationTemplate = `🚀 *NUEVA CAMPAÑA INICIADA*
+
+📊 *Información de la campaña:*
+• Total de contactos: {totalContacts}
+• Mensaje de campaña: {campaignMessagePreview}
+
+⏰ *Inicio:* {startTime}
+🆔 *ID de campaña:* {campaignId}`;
+
+        // Procesar el mensaje con el primer contacto válido para mostrar ejemplo correcto
+        let processedMessagePreview = 'Sin mensaje';
+        if (message && firstValidContact) {
+            processedMessagePreview = processMessageVariables(message, firstValidContact);
+            if (processedMessagePreview.length > 100) {
+                processedMessagePreview = processedMessagePreview.substring(0, 100) + '...';
+            }
+        } else if (message) {
+            processedMessagePreview = (message.length > 100) ? message.substring(0, 100) + '...' : message;
+        }
+
+        // Preparar datos para el template
+        const templateData = {
+            totalContacts: contacts.length,
+            campaignMessagePreview: processedMessagePreview,
+            startTime: new Date().toLocaleString('es-GT', {
+                timeZone: 'America/Guatemala',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            }),
+            campaignId: `campaign-${Date.now()}`
+        };
+
+        // Debug: Log de los datos del template antes del procesamiento
+        console.log(`whatsapp-logic: DEBUG - Datos del template para notificación:`, JSON.stringify(templateData, null, 2));
+        console.log(`whatsapp-logic: DEBUG - Plantilla de notificación antes del procesamiento:`, notificationTemplate);
+
+        // Procesar el mensaje con los datos del primer contacto
+        const processedNotification = processMessageVariables(notificationTemplate, templateData);
+
+        // Debug: Log del mensaje procesado para notificación
+        console.log(`whatsapp-logic: DEBUG - Mensaje de notificación procesado:`, processedNotification);
+
+        // Enviar notificación a todos los supervisores
+        let successCount = 0;
+        const errors = [];
+
+        logger?.info(`${logPrefix}: Enviando notificaciones de inicio a ${supervisorNumbers.length} supervisores`);
+
+        for (const supervisorNumber of supervisorNumbers) {
+            try {
+                // Validar número de supervisor
+                if (!supervisorNumber || typeof supervisorNumber !== 'string') {
+                    logger?.warn(`${logPrefix}: Número de supervisor inválido: ${supervisorNumber}`);
+                    continue;
+                }
+
+                const chatId = `${supervisorNumber}@c.us`;
+
+                // Verificar que el cliente esté listo
+                if (!client || !client.info) {
+                    throw new Error('Cliente de WhatsApp no está listo');
+                }
+
+                await sendMessageWithRetries(chatId, processedNotification, null, 3, 30000);
+
+                successCount++;
+                logger?.info(`${logPrefix}: Notificación enviada exitosamente a supervisor ${supervisorNumber}`);
+
+            } catch (error) {
+                const errorMsg = `Error enviando notificación a supervisor ${supervisorNumber}: ${error.message}`;
+                logger?.error(`${logPrefix}: ${errorMsg}`);
+                errors.push(errorMsg);
+            }
+        }
+
+        // Log del resultado final
+        if (successCount === supervisorNumbers.length) {
+            logger?.info(`${logPrefix}: Todas las notificaciones de inicio enviadas exitosamente (${successCount}/${supervisorNumbers.length})`);
+            if (logCallback) logCallback(`whatsapp-logic: Notificaciones de inicio enviadas a ${successCount} supervisores`);
+            return true;
+        } else {
+            logger?.warn(`${logPrefix}: Algunas notificaciones fallaron (${successCount}/${supervisorNumbers.length} exitosas)`);
+            if (logCallback) logCallback(`whatsapp-logic: ${successCount}/${supervisorNumbers.length} notificaciones de inicio enviadas exitosamente`);
+            return false;
+        }
+
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error crítico enviando notificaciones de inicio: ${error.message}`);
+        console.error('Error crítico enviando notificaciones de inicio:', error);
+        if (logCallback) logCallback(`whatsapp-logic: Error crítico enviando notificaciones de inicio: ${error.message}`);
+        return false;
+    }
+}
+
+/**
  * Sends a message with retries.
  * @param {string} chatId - The chat ID to send the message to.
  * @param {string} message - The message text.
@@ -874,8 +1082,35 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
             console.log(`whatsapp-logic: Data from '${nombreHoja}' sheet:`, campaignState.totalContacts, "rows.");
             if (logCallback) logCallback(`whatsapp-logic: Loaded ${campaignState.totalContacts} contacts from sheet '${nombreHoja}'`);
         }
-        
+
         notifyProgress(); // Initial progress update
+
+        // --- Campaign Start Notifications ---
+        // Send notifications to supervisors when starting a new campaign
+        if (!campaignId) {
+            // Only send notifications for new campaigns, not resumed ones
+            logger?.info(`Campaign Start: Sending notifications to supervisors for new campaign ${campaignState.id}`);
+            console.log("whatsapp-logic: Sending campaign start notifications to supervisors...");
+
+            try {
+                const notificationSuccess = await sendCampaignStartNotification(campaignState.config, campaignState.contacts, logCallback);
+
+                if (notificationSuccess) {
+                    logger?.info(`Campaign Start: Supervisor notifications sent successfully`);
+                    console.log("whatsapp-logic: Campaign start notifications sent successfully");
+                } else {
+                    logger?.warn(`Campaign Start: Some supervisor notifications failed`);
+                    console.log("whatsapp-logic: Some campaign start notifications failed");
+                }
+            } catch (notificationError) {
+                logger?.error(`Campaign Start: Critical error sending supervisor notifications: ${notificationError.message}`);
+                console.error("whatsapp-logic: Critical error sending campaign start notifications:", notificationError.message);
+                if (logCallback) logCallback(`whatsapp-logic: Error enviando notificaciones de inicio: ${notificationError.message}`);
+            }
+        } else {
+            logger?.info(`Campaign Start: Skipping notifications for resumed campaign ${campaignId}`);
+            console.log("whatsapp-logic: Skipping notifications for resumed campaign");
+        }
 
         if (logCallback) logCallback(`whatsapp-logic: Starting message sending loop from index ${campaignState.config.currentIndex} to ${campaignState.totalContacts - 1}`);
 
@@ -920,7 +1155,15 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
 
                 try {
                     let media = mediaPath ? MessageMedia.fromFilePath(mediaPath) : null;
-                    let processedMessage = message.replace(/{{(.*?)}}/g, (match, key) => dato[key.trim()] || ' ');
+
+                    // Debug: Log del contacto actual y mensaje antes del procesamiento
+                    console.log(`whatsapp-logic: DEBUG - Contacto actual (index ${currentIndex}):`, JSON.stringify(dato, null, 2));
+                    console.log(`whatsapp-logic: DEBUG - Mensaje original:`, message);
+
+                    // Usar la función processMessageVariables para reemplazar correctamente las variables
+                    let processedMessage = processMessageVariables(message, dato);
+
+                    console.log(`whatsapp-logic: DEBUG - Mensaje procesado:`, processedMessage);
 
                     if (messageType == 1) { // Text only
                         await sendMessageWithRetries(chatId, processedMessage, null, maxRetries, timeout);
@@ -948,11 +1191,6 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                     const tiempoFormateado = formatearTiempo(tiempoPausa);
                     const pauseMessage = `- 🔔 PAUSA AUTOMÁTICA: ${tiempoFormateado} | Enviados: ${campaignState.sentCount}`;
                     logCallback(`[${campaignState.config.currentIndex}] ${pauseMessage}`);
-                    if (supervisorNumbers && supervisorNumbers.length > 0) {
-                        for (const supNum of supervisorNumbers) {
-                            await client.sendMessage(`${supNum}@c.us`, pauseMessage);
-                        }
-                    }
                     // Subtract 2 seconds from pause time as requested
                     const adjustedPauseTime = Math.max(2000, tiempoPausa - 2000);
                     await controlledDelay(adjustedPauseTime, 'pause'); // USE CONTROLLED DELAY with pause type
@@ -975,10 +1213,17 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
 
         if (campaignState.status !== 'stopping') {
             campaignState.status = 'finished';
-            if (logCallback) logCallback(`whatsapp-logic: Campaign finished successfully. Total messages sent: ${campaignState.sentCount}`);
+            if (logCallback) logCallback(`whatsapp-logic: Campaign finished successfully. Total messages sent: ${campaignState.config.currentIndex}`);
+
+            // Re-read config to get supervisorNumbers for final notification
+            const {
+                message, mediaPath, messageType, pausaCada,
+                pausaMinima, pausaMaxima, sendDelay, maxRetries, timeout, supervisorNumbers, currentIndex
+            } = campaignState.config;
+
             const finalMessage = `🏁 CAMPAÑA FINALIZADA
 
-📊 Total de mensajes enviados: ${campaignState.sentCount}`;
+📊 Total de mensajes enviados: ${campaignState.config.currentIndex}`;
             if (supervisorNumbers && supervisorNumbers.length > 0) {
                 for (const supNum of supervisorNumbers) {
                     await client.sendMessage(`${supNum}@c.us`, finalMessage);
@@ -1168,7 +1413,9 @@ module.exports = {
     getClientStatus, // Export the new function
     softLogoutAndReinitialize, // Export the new function
     setCountdownState, // Export countdown function
-    notifyCountdown // Export countdown notification function
+    notifyCountdown, // Export countdown notification function
+    processMessageVariables, // Export message variable processing function
+    sendCampaignStartNotification // Export campaign start notification function
 };
 
 /**

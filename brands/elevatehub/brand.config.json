@@ -1,8 +1,8 @@
 {
   "name": "elevatehub",
   "displayName": "ElevateHub",
-  "description": "Advanced WhatsApp automation platform for businesses.",
-  "version": "1.0.4",
+  "description": "WhatsApp Bot",
+  "version": "1.0.5",
   "productName": "ElevateHub",
   "appId": "com.elevatehub.whatsappbot",
   "author": "ElevateHub Inc.",
@@ -21,6 +21,6 @@
     "icon": "icon.ico",
     "logo": "logos/logo-elevatehub.png"
   },
-  "title": "ElevateHub - WhatsApp Automation",
+  "title": "ElevateHub - Bot",
   "theme": "elevatehub"
 }

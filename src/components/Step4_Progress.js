@@ -122,39 +122,96 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
   };
 
   const isPaused = campaign.status === 'paused';
+  const isFinished = campaign.status === 'finished';
+
+  // Función para formatear la fecha de finalización
+  const formatFinishTime = (finishTime) => {
+    if (!finishTime) return 'N/A';
+    return new Date(finishTime).toLocaleString('es-ES', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
 
   return (
     <div className="step-container">
-      <h2>Campaña en Progreso: {campaign.config.campaignName}</h2>
+      <h2>
+        {isFinished ? 'Campaña Finalizada: ' : 'Campaña en Progreso: '}
+        {campaign.config.campaignName}
+      </h2>
+
+      {isFinished && (
+        <div className="campaign-finished-banner">
+          <div className="success-indicator">
+            <span className="success-icon">✅</span>
+            <h3>CAMPAÑA FINALIZADA</h3>
+          </div>
+
+          <div className="campaign-stats">
+            <div className="stat-item">
+              <span className="stat-label">Mensajes Enviados:</span>
+              <span className="stat-value">{campaign.config.currentIndex || 0} / {campaign.total}</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Estado:</span>
+              <span className="stat-value success">Completada con Éxito</span>
+            </div>
+          </div>
+        </div>
+      )}
       {sessionStatus === 'qr_received' && qrCodeData && (
         <div className="form-group" style={{ textAlign: 'center' }}>
           <h3>Escanee el código QR para continuar</h3>
           <img src={qrCodeData} alt="QR Code" />
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-        <p style={{ margin: 0 }}>Enviados: {campaign.config.currentIndex || 0} / {campaign.total}</p>
-        {getCountdownMessage() && (
-          <span style={{
-            fontSize: '14px',
-            color: countdownState.type === 'pausing' ? '#d13438' : '#107c10',
-            fontWeight: '500'
-          }}>
-            {getCountdownMessage()}
-          </span>
-        )}
-      </div>
-      <ProgressBar value={campaign.config.currentIndex || 0} max={campaign.total} />
+      {!isFinished && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+            <p style={{ margin: 0 }}>Enviados: {campaign.config.currentIndex || 0} / {campaign.total}</p>
+            {getCountdownMessage() && (
+              <span style={{
+                fontSize: '14px',
+                color: countdownState.type === 'pausing' ? '#d13438' : '#107c10',
+                fontWeight: '500'
+              }}>
+                {getCountdownMessage()}
+              </span>
+            )}
+          </div>
+          <ProgressBar value={campaign.config.currentIndex || 0} max={campaign.total} />
+        </>
+      )}
 
       <div className="step-actions">
-        <Button appearance="primary" onClick={() => onPause(campaign.id)} disabled={!isPaused && sessionStatus === 'ready' ? false : true}>
-          Pausar
-        </Button>
-        <Button appearance="primary" onClick={() => onResume(campaign.id)} disabled={isPaused && sessionStatus === 'ready' ? false : true}>
-          Reanudar
-        </Button>
-        <Button onClick={onStartNew} disabled={campaign.status === 'running'}>
-          Nueva Campaña
+        {!isFinished ? (
+          <>
+            <Button appearance="primary" onClick={() => onPause(campaign.id)} disabled={!isPaused && sessionStatus === 'ready' ? false : true}>
+              Pausar
+            </Button>
+            <Button appearance="primary" onClick={() => onResume(campaign.id)} disabled={isPaused && sessionStatus === 'ready' ? false : true}>
+              Reanudar
+            </Button>
+          </>
+        ) : (
+          <div className="finished-message">
+            <p style={{ margin: '0 0 10px 0', color: '#107c10', fontWeight: '500' }}>
+              ¡Campaña completada exitosamente!
+            </p>
+          </div>
+        )}
+
+        <Button
+          onClick={onStartNew}
+          disabled={campaign.status === 'running'}
+          appearance={isFinished ? "primary" : "secondary"}
+          title={isFinished ? "Iniciar una nueva campaña con diferentes parámetros" : "Crear nueva campaña"}
+        >
+          {isFinished ? "Iniciar Nueva Campaña" : "Nueva Campaña"}
         </Button>
       </div>
 

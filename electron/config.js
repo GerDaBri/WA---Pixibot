@@ -8,8 +8,8 @@ module.exports = {
         ? 'https://licencias.superbotsx.com' // Production server (packaged)
         : 'http://localhost/servidor/', // Local development server (unpacked)
 
-    // License check interval (1 days in milliseconds)
-    licenseCheckInterval: 1 * 24 * 60 * 60 * 1000,
+    // License check interval (2 days in milliseconds)
+    licenseCheckInterval:  60 * 1000,
 
     //2 minutes in milliseconds
     //licenseCheckInterval: 2 * 60 * 1000, 
