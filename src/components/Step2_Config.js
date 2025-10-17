@@ -18,8 +18,8 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
   const [messageType, setMessageType] = useState(initialConfig.messageType ?? '1');
   const [selectedFilePath, setSelectedFilePath] = useState(initialConfig.mediaPath ?? '');
   const [pausaCada, setPausaCada] = useState(initialConfig.pausaCada ?? 1);
-  const [pausaMinima, setPausaMinima] = useState(initialConfig.pausaMinima ?? 3);
-  const [pausaMaxima, setPausaMaxima] = useState(initialConfig.pausaMaxima ?? 5);
+  const [pausaMinima, setPausaMinima] = useState(initialConfig.pausaMinima ?? 5);
+  const [pausaMaxima, setPausaMaxima] = useState(initialConfig.pausaMaxima ?? 8);
   const [sendDelay, setSendDelay] = useState(initialConfig.sendDelay ?? 5);
   const [maxRetries, setMaxRetries] = useState(initialConfig.maxRetries ?? 3);
   const [timeout, setTimeoutValue] = useState(initialConfig.timeout ?? 60000);

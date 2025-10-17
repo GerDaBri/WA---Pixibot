@@ -11,7 +11,7 @@ export const config = {
         : 'https://licencias.superbotsx.com', // Production server
 
     // License check interval (2 days in milliseconds)
-    licenseCheckInterval:  60 * 1000,
+    licenseCheckInterval: 60 * 60 * 24 * 2 * 1000,
 
     // App name
     appName: 'Pixibot',

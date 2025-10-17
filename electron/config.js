@@ -9,7 +9,7 @@ module.exports = {
         : 'http://localhost/servidor/', // Local development server (unpacked)
 
     // License check interval (2 days in milliseconds)
-    licenseCheckInterval:  60 * 1000,
+    licenseCheckInterval:  60 * 60 * 24 * 2 * 1000,
 
     //2 minutes in milliseconds
     //licenseCheckInterval: 2 * 60 * 1000, 

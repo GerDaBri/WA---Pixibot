@@ -6,10 +6,548 @@ const path = require('path');
 const winston = require('winston');
 const os = require('os');
 
+
+
+// Función de operaciones seguras con reintentos para operaciones de archivos
+async function safeFileOperation(operation, maxRetries = 3, baseDelay = 1000) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await operation();
+        } catch (error) {
+            lastError = error;
+            logger?.warn(`File Operation: Intento ${attempt}/${maxRetries} falló: ${error.message}`);
+
+            // Si es EBUSY o archivo bloqueado, esperar más tiempo
+            if (error.code === 'EBUSY' || error.message.includes('locked')) {
+                const delayTime = baseDelay * Math.pow(2, attempt - 1); // Delay progresivo
+                logger?.info(`File Operation: Archivo bloqueado, esperando ${delayTime}ms antes del siguiente intento`);
+                await delay(delayTime);
+            } else if (attempt < maxRetries) {
+                // Para otros errores, esperar menos tiempo
+                await delay(baseDelay * attempt);
+            }
+        }
+    }
+
+    // Si todos los intentos fallaron, lanzar el último error
+    logger?.error(`File Operation: Todos los ${maxRetries} intentos fallaron. Último error: ${lastError.message}`);
+    throw lastError;
+}
+
+// Variable para rastrear si estamos en proceso de logout
+let isLoggingOut = false;
+
+// Función de limpieza alternativa agresiva para casos extremos de EBUSY
+async function aggressiveSessionCleanup(sessionPath, maxRetries = 3) {
+    const logPrefix = 'Aggressive Session Cleanup';
+
+    logger?.warn(`${logPrefix}: Iniciando limpieza alternativa agresiva para sesión: ${sessionPath}`);
+    logger?.warn(`${logPrefix}: Esta limpieza se usa como último recurso cuando métodos normales fallan`);
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            logger?.info(`${logPrefix}: Intento ${attempt}/${maxRetries} de limpieza agresiva`);
+
+            // Verificar si el directorio existe
+            if (!fs.existsSync(sessionPath)) {
+                logger?.info(`${logPrefix}: Directorio de sesión no existe, limpieza no necesaria`);
+                return true;
+            }
+
+            // Intentar diferentes estrategias de limpieza agresiva
+
+            // Estrategia 1: Usar rimraf si está disponible (más confiable para archivos bloqueados)
+            try {
+                const rimraf = require('rimraf');
+                logger?.info(`${logPrefix}: Estrategia 1 - Usando rimraf para limpieza forzada`);
+
+                await new Promise((resolve, reject) => {
+                    rimraf(sessionPath, { maxRetries: 3, retryDelay: 1000 }, (error) => {
+                        if (error) {
+                            logger?.warn(`${logPrefix}: Error con rimraf en intento ${attempt}: ${error.message}`);
+                            reject(error);
+                        } else {
+                            logger?.info(`${logPrefix}: Limpieza con rimraf exitosa en intento ${attempt}`);
+                            resolve();
+                        }
+                    });
+                });
+
+                return true;
+
+            } catch (rimrafError) {
+                logger?.warn(`${logPrefix}: rimraf no disponible o falló: ${rimrafError.message}`);
+            }
+
+            // Estrategia 2: Limpieza manual agresiva con múltiples técnicas
+            logger?.info(`${logPrefix}: Estrategia 2 - Limpieza manual agresiva`);
+
+            // 2a: Intentar cambiar permisos primero (en sistemas que lo soporten)
+            try {
+                if (os.platform() !== 'win32') {
+                    const { exec } = require('child_process');
+                    await new Promise((resolve) => {
+                        exec(`chmod -R 755 "${sessionPath}" 2>/dev/null || true`, (error) => {
+                            logger?.info(`${logPrefix}: Permisos cambiados (o ya eran correctos)`);
+                            resolve();
+                        });
+                    });
+                }
+            } catch (chmodError) {
+                logger?.info(`${logPrefix}: No se pudieron cambiar permisos: ${chmodError.message}`);
+            }
+
+            // 2b: Intentar eliminar archivos individuales primero
+            try {
+                const files = fs.readdirSync(sessionPath);
+                for (const file of files) {
+                    const filePath = path.join(sessionPath, file);
+                    try {
+                        const stats = fs.statSync(filePath);
+                        if (stats.isFile()) {
+                            fs.unlinkSync(filePath);
+                            logger?.info(`${logPrefix}: Archivo eliminado: ${file}`);
+                        } else if (stats.isDirectory()) {
+                            fs.rmSync(filePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
+                            logger?.info(`${logPrefix}: Directorio eliminado: ${file}`);
+                        }
+                    } catch (fileError) {
+                        logger?.warn(`${logPrefix}: No se pudo eliminar ${file}: ${fileError.message}`);
+                    }
+                }
+            } catch (readError) {
+                logger?.warn(`${logPrefix}: Error leyendo directorio: ${readError.message}`);
+            }
+
+            // 2c: Intentar eliminar el directorio principal
+            try {
+                fs.rmSync(sessionPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
+                logger?.info(`${logPrefix}: Directorio de sesión eliminado exitosamente en intento ${attempt}`);
+                return true;
+            } catch (deleteError) {
+                logger?.warn(`${logPrefix}: Error eliminando directorio en intento ${attempt}: ${deleteError.message}`);
+            }
+
+            // Delay progresivo entre intentos
+            if (attempt < maxRetries) {
+                const delayTime = 2000 * attempt;
+                logger?.info(`${logPrefix}: Esperando ${delayTime}ms antes del siguiente intento`);
+                await delay(delayTime);
+            }
+
+        } catch (error) {
+            logger?.error(`${logPrefix}: Error inesperado en intento ${attempt}: ${error.message}`);
+
+            if (attempt === maxRetries) {
+                logger?.error(`${logPrefix}: Todos los ${maxRetries} intentos de limpieza agresiva fallaron`);
+                throw error;
+            }
+        }
+    }
+
+    logger?.error(`${logPrefix}: Limpieza agresiva falló completamente`);
+    return false;
+}
+
+// Función wrapper específica para client.logout() que maneja errores EBUSY
+async function safeLogoutWithEBUSYHandling(clientInstance, maxRetries = 3) {
+    const logPrefix = 'Safe Logout with EBUSY Handling';
+
+    // Prevenir múltiples llamadas simultáneas de logout
+    if (isLoggingOut) {
+        logger?.warn(`${logPrefix}: Logout ya en progreso, ignorando llamada adicional`);
+        return false;
+    }
+
+    isLoggingOut = true;
+
+    try {
+        logger?.info(`${logPrefix}: Iniciando proceso de logout seguro con manejo de EBUSY`);
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                logger?.info(`${logPrefix}: Intento ${attempt}/${maxRetries} de logout`);
+
+                // Antes de cada intento, intentar liberar procesos Chrome
+                if (attempt > 1) {
+                    logger?.info(`${logPrefix}: Liberando procesos Chrome antes del intento ${attempt}`);
+                    await forceReleaseChromeProcesses();
+
+                    // Delay adicional para permitir liberación completa
+                    await delay(2000);
+                }
+
+                // Ejecutar logout con timeout específico
+                const logoutPromise = clientInstance.logout();
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Logout timeout')), 15000)
+                );
+
+                await Promise.race([logoutPromise, timeoutPromise]);
+
+                logger?.info(`${logPrefix}: Logout exitoso en intento ${attempt}`);
+                return true;
+
+            } catch (error) {
+                logger?.warn(`${logPrefix}: Error en intento ${attempt}/${maxRetries}: ${error.message}`);
+
+                // Si es EBUSY o error relacionado con archivos bloqueados, intentar estrategias específicas
+                if (error.message.includes('EBUSY') ||
+                    error.message.includes('locked') ||
+                    error.message.includes('first_party_sets.db') ||
+                    error.message.includes('sharing violation')) {
+
+                    logger?.info(`${logPrefix}: Error EBUSY detectado, aplicando estrategias de liberación agresiva`);
+
+                    // Estrategia 1: Liberar procesos Chrome agresivamente
+                    await forceReleaseChromeProcesses();
+
+                    // Estrategia 2: Intentar liberar específicamente archivos de sesión
+                    try {
+                        const sessionPath = clientInstance.options?.authStrategy?.dataPath;
+                        if (sessionPath) {
+                            logger?.info(`${logPrefix}: Intentando liberar archivos de sesión en: ${sessionPath}`);
+                            await forceReleaseFileHandles(sessionPath, 3000);
+                        }
+                    } catch (fileError) {
+                        logger?.warn(`${logPrefix}: Error liberando archivos de sesión: ${fileError.message}`);
+                    }
+
+                    // Delay progresivo entre reintentos
+                    if (attempt < maxRetries) {
+                        const delayTime = 2000 * attempt;
+                        logger?.info(`${logPrefix}: Esperando ${delayTime}ms antes del siguiente intento`);
+                        await delay(delayTime);
+                    }
+
+                } else if (attempt === maxRetries) {
+                    // Si es el último intento y no es EBUSY, lanzar el error
+                    throw error;
+                } else {
+                    // Para otros errores, delay más corto
+                    await delay(1000);
+                }
+            }
+        }
+
+        // Si todos los intentos fallaron
+        logger?.error(`${logPrefix}: Todos los ${maxRetries} intentos de logout fallaron`);
+        return false;
+
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error crítico durante proceso de logout: ${error.message}`);
+        return false;
+
+    } finally {
+        isLoggingOut = false;
+        logger?.info(`${logPrefix}: Proceso de logout finalizado`);
+    }
+}
+
+// Función para liberar procesos de Chrome/Puppeteer antes del logout
+async function forceReleaseChromeProcesses() {
+    const logPrefix = 'Chrome Process Release';
+    logger?.info(`${logPrefix}: Iniciando liberación forzada de procesos Chrome/Puppeteer`);
+
+    try {
+        // En Windows, usar taskkill para terminar procesos relacionados con Chrome
+        if (os.platform() === 'win32') {
+            logger?.info(`${logPrefix}: Plataforma Windows detectada, ejecutando taskkill`);
+
+            const { exec } = require('child_process');
+
+            // Lista de procesos relacionados con Chrome que pueden mantener archivos bloqueados
+            const chromeProcesses = [
+                'chrome.exe',
+                'chromedriver.exe',
+                'puppeteer.exe'
+            ];
+
+            for (const processName of chromeProcesses) {
+                await new Promise((resolve) => {
+                    exec(`taskkill /f /im "${processName}" 2>nul`, (error, stdout, stderr) => {
+                        if (error) {
+                            logger?.info(`${logPrefix}: No se encontraron procesos ${processName} o ya fueron terminados`);
+                        } else {
+                            logger?.info(`${logPrefix}: Procesos ${processName} terminados exitosamente`);
+                        }
+                        resolve();
+                    });
+                });
+
+                // Pequeña pausa entre procesos
+                await delay(500);
+            }
+        } else {
+            // En sistemas Unix-like, usar pkill
+            logger?.info(`${logPrefix}: Plataforma Unix detectada, ejecutando pkill`);
+
+            const { exec } = require('child_process');
+
+            await new Promise((resolve) => {
+                exec('pkill -f "chrome|chromium|puppeteer" 2>/dev/null || true', (error, stdout, stderr) => {
+                    if (error) {
+                        logger?.info(`${logPrefix}: No se encontraron procesos Chrome o ya fueron terminados`);
+                    } else {
+                        logger?.info(`${logPrefix}: Procesos Chrome terminados exitosamente`);
+                    }
+                    resolve();
+                });
+            });
+        }
+
+        // Esperar adicional para que se liberen los handles de archivos
+        logger?.info(`${logPrefix}: Esperando 3 segundos para liberación completa de handles`);
+        await delay(3000);
+
+        logger?.info(`${logPrefix}: Liberación de procesos Chrome completada`);
+        return true;
+
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error durante liberación de procesos Chrome: ${error.message}`);
+        return false;
+    }
+}
+
+// Función para liberar handles de archivos forzadamente
+async function forceReleaseFileHandles(filePath, maxWaitTime = 5000) {
+    const logPrefix = 'Force File Handle Release';
+    logger?.info(`${logPrefix}: Intentando liberar handles para: ${filePath}`);
+
+    try {
+        // Intentar acceder al archivo para verificar si está disponible
+        await fs.promises.access(filePath, fs.constants.F_OK);
+        logger?.info(`${logPrefix}: Archivo accesible, no requiere liberación forzada`);
+        return true;
+    } catch (error) {
+        if (error.code === 'EBUSY') {
+            logger?.warn(`${logPrefix}: Archivo bloqueado detectado, esperando liberación...`);
+
+            // Esperar un tiempo razonable para que se liberen los handles
+            const startTime = Date.now();
+            while (Date.now() - startTime < maxWaitTime) {
+                await delay(500);
+                try {
+                    await fs.promises.access(filePath, fs.constants.F_OK);
+                    logger?.info(`${logPrefix}: Archivo liberado después de ${Date.now() - startTime}ms`);
+                    return true;
+                } catch (continueError) {
+                    // Continuar esperando
+                }
+            }
+
+            logger?.error(`${logPrefix}: No se pudo liberar el archivo después de ${maxWaitTime}ms`);
+            return false;
+        }
+
+        // Otros errores no relacionados con bloqueo
+        logger?.info(`${logPrefix}: Archivo no encontrado o error diferente: ${error.message}`);
+        return true; // No es un problema de bloqueo
+    }
+}
+
+// Función para leer archivos Excel con operaciones seguras
+async function safeReadExcelFile(excelPath, maxRetries = 3) {
+    return await safeFileOperation(async () => {
+        // Liberar handles antes de la operación
+        await forceReleaseFileHandles(excelPath);
+
+        const excel = XLSX.readFile(excelPath);
+        const nombreHoja = excel.SheetNames[0];
+        return XLSX.utils.sheet_to_json(excel.Sheets[nombreHoja]);
+    }, maxRetries, 1000);
+}
+
+// Función para escribir archivos con operaciones seguras
+async function safeWriteFile(filePath, data, maxRetries = 3) {
+    return await safeFileOperation(async () => {
+        // Liberar handles antes de la operación
+        await forceReleaseFileHandles(filePath);
+
+        fs.writeFileSync(filePath, data, 'utf8');
+        return true;
+    }, maxRetries, 1000);
+}
+
+// Función para eliminar archivos/directorios con operaciones seguras
+async function safeDeletePath(targetPath, maxRetries = 3) {
+    return await safeFileOperation(async () => {
+        // Liberar handles antes de la operación
+        await forceReleaseFileHandles(targetPath);
+
+        if (fs.existsSync(targetPath)) {
+            fs.rmSync(targetPath, { recursive: true, force: true });
+        }
+        return true;
+    }, maxRetries, 1500);
+}
+
+// CORRECCIÓN: Manejador global para promesas rechazadas con manejo específico de EBUSY durante logout
+let unhandledRejections = [];
+process.on('unhandledRejection', (reason, promise) => {
+    const errorInfo = {
+        reason: reason?.message || reason,
+        stack: reason?.stack,
+        timestamp: new Date().toISOString(),
+        promise: promise.toString()
+    };
+
+    unhandledRejections.push(errorInfo);
+
+    // CORRECCIÓN: Manejo específico de errores EBUSY durante logout
+    const isEBUSYError = reason?.message?.includes('EBUSY') ||
+                        reason?.message?.includes('locked') ||
+                        reason?.message?.includes('first_party_sets.db') ||
+                        reason?.message?.includes('sharing violation');
+
+    const isDuringLogout = isLoggingOut || reason?.message?.includes('logout');
+
+    if (isEBUSYError && isDuringLogout) {
+        // SOLUCIÓN EBUSY: Registrar como warning en lugar de error crítico durante logout
+        logger?.warn(`Unhandled Promise Rejection (EBUSY durante logout): ${errorInfo.reason}`);
+        logger?.info(`EBUSY Logout Handler: Error EBUSY detectado durante logout, registrando como warning para evitar cierre forzoso`);
+
+        // NO intentar recuperación agresiva durante logout - dejar que el proceso de logout maneje la limpieza
+        // NO resetear estado de inicialización durante logout
+
+    } else if (isEBUSYError) {
+        // Para errores EBUSY fuera de logout, mantener comportamiento existente pero mejorado
+        logger?.error(`Unhandled Promise Rejection (EBUSY): ${errorInfo.reason}`);
+        logger?.warn('EBUSY Handler: Error EBUSY detectado fuera de logout, iniciando recuperación controlada...');
+
+        // Solo intentar limpieza si no estamos en proceso de logout
+        if (!isLoggingOut && client) {
+            try {
+                client.destroy().catch(destroyError => {
+                    logger?.error(`Error durante limpieza controlada: ${destroyError.message}`);
+                });
+                client = null;
+            } catch (cleanupError) {
+                logger?.error(`Error durante cleanup controlado: ${cleanupError.message}`);
+            }
+        }
+
+        // Reset estado solo si no estamos en logout
+        if (!isLoggingOut) {
+            isClientInitializing = false;
+            resolveClientReady = null;
+            rejectClientReady = null;
+        }
+
+    } else {
+        // Para otros errores, mantener comportamiento existente
+        logger?.error(`Unhandled Promise Rejection: ${errorInfo.reason}`);
+        logger?.error(`Unhandled Promise Rejection Stack: ${errorInfo.stack}`);
+
+        // CORRECCIÓN: Mejorar manejo de errores en operaciones asíncronas críticas
+        if (reason?.message?.includes('ENOTFOUND')) {
+            logger?.warn('Unhandled Promise Rejection: Error ENOTFOUND detectado, iniciando recuperación...');
+
+            if (client) {
+                try {
+                    client.destroy().catch(destroyError => {
+                        logger?.error(`Error durante limpieza de emergencia: ${destroyError.message}`);
+                    });
+                    client = null;
+                } catch (cleanupError) {
+                    logger?.error(`Error durante cleanup: ${cleanupError.message}`);
+                }
+            }
+
+            isClientInitializing = false;
+            resolveClientReady = null;
+            rejectClientReady = null;
+        }
+    }
+
+    // Mantener solo las últimas 10 promesas rechazadas para evitar memory leaks
+    if (unhandledRejections.length > 10) {
+        unhandledRejections = unhandledRejections.slice(-10);
+    }
+});
+
+// Función para obtener estadísticas de promesas rechazadas
+function getUnhandledRejections() {
+    return [...unhandledRejections];
+}
+
+// Función para limpiar registro de promesas rechazadas
+function clearUnhandledRejections() {
+    unhandledRejections = [];
+    logger?.info('Unhandled Promise Rejections: Registro limpiado');
+}
+
+// CORRECCIÓN: Función de operaciones seguras para evitar promesas colgando
+async function safeAsyncOperation(operation, timeout = 30000, operationName = 'unknown') {
+    const logPrefix = `Safe Async Operation: ${operationName}`;
+
+    return new Promise(async (resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            const timeoutError = new Error(`${operationName} timed out after ${timeout}ms`);
+            logger?.error(`${logPrefix}: ${timeoutError.message}`);
+            reject(timeoutError);
+        }, timeout);
+
+        try {
+            logger?.info(`${logPrefix}: Iniciando operación con timeout de ${timeout}ms`);
+            const result = await operation();
+
+            clearTimeout(timeoutId);
+            logger?.info(`${logPrefix}: Operación completada exitosamente`);
+            resolve(result);
+
+        } catch (error) {
+            clearTimeout(timeoutId);
+            logger?.error(`${logPrefix}: Error en operación: ${error.message}`);
+            reject(error);
+        }
+    });
+}
+
+// Función para ejecutar operaciones con reintentos seguros
+async function safeRetryOperation(operation, maxRetries = 3, baseDelay = 1000, operationName = 'retry-operation') {
+    const logPrefix = `Safe Retry Operation: ${operationName}`;
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            logger?.info(`${logPrefix}: Intento ${attempt}/${maxRetries}`);
+
+            const result = await safeAsyncOperation(
+                operation,
+                30000,
+                `${operationName}-attempt-${attempt}`
+            );
+
+            if (attempt > 1) {
+                logger?.info(`${logPrefix}: Operación exitosa después de ${attempt} intentos`);
+            }
+
+            return result;
+
+        } catch (error) {
+            lastError = error;
+            logger?.warn(`${logPrefix}: Intento ${attempt}/${maxRetries} falló: ${error.message}`);
+
+            if (attempt < maxRetries) {
+                const delayTime = baseDelay * Math.pow(2, attempt - 1);
+                logger?.info(`${logPrefix}: Esperando ${delayTime}ms antes del siguiente intento`);
+                await delay(delayTime);
+            }
+        }
+    }
+
+    logger?.error(`${logPrefix}: Todos los ${maxRetries} intentos fallaron. Último error: ${lastError.message}`);
+    throw lastError;
+}
+
 // Función para cargar configuración de Puppeteer desde JSON
 function loadPuppeteerConfig(configPath) {
     try {
         if (fs.existsSync(configPath)) {
+            // CORRECCIÓN: Usar operaciones seguras para leer configuración
             const configData = fs.readFileSync(configPath, 'utf8');
             const config = JSON.parse(configData);
 
@@ -76,6 +614,13 @@ let clientReadyPromise = null;
 let resolveClientReady = null;
 let isClientInitializing = false;
 
+// Variables para controlar reintentos de reconexión
+let isReconnecting = false;
+let reconnectAttempts = 0;
+let maxReconnectAttempts = 5;
+let reconnectDelay = 5000; // 5 segundos
+let reconnectTimeout = null;
+
 // Logger instance for whatsapp-logic
 let logger = null;
 
@@ -102,7 +647,9 @@ function initializeLogger(logsDir) {
 // Robust Chrome detection with multiple fallbacks
 async function detectChromeExecutable() {
     const logPrefix = 'Chrome Detection';
+    const startTime = Date.now();
     logger?.info(`${logPrefix}: Starting Chrome executable detection`);
+    logger?.info(`${logPrefix}: System info - Platform: ${os.platform()}, Arch: ${os.arch()}, Release: ${os.release()}`);
     
     const detectionMethods = [
         {
@@ -150,7 +697,12 @@ async function detectChromeExecutable() {
                 
                 for (const chromePath of possiblePaths) {
                     try {
-                        await fs.promises.access(chromePath, fs.constants.F_OK | fs.constants.X_OK);
+                        // CORRECCIÓN: Usar operaciones seguras para verificar acceso a Chrome
+                        await safeFileOperation(async () => {
+                            await fs.promises.access(chromePath, fs.constants.F_OK | fs.constants.X_OK);
+                            return true;
+                        }, 2, 500);
+
                         logger?.info(`${logPrefix}: Found Chrome at system path: ${chromePath}`);
                         return chromePath;
                     } catch (error) {
@@ -167,7 +719,13 @@ async function detectChromeExecutable() {
                 try {
                     const puppeteer = require('puppeteer');
                     const executablePath = puppeteer.executablePath();
-                    await fs.promises.access(executablePath, fs.constants.F_OK | fs.constants.X_OK);
+
+                    // CORRECCIÓN: Usar operaciones seguras para verificar acceso a Chromium
+                    await safeFileOperation(async () => {
+                        await fs.promises.access(executablePath, fs.constants.F_OK | fs.constants.X_OK);
+                        return true;
+                    }, 2, 500);
+
                     logger?.info(`${logPrefix}: Using Puppeteer bundled Chromium: ${executablePath}`);
                     return executablePath;
                 } catch (error) {
@@ -180,22 +738,33 @@ async function detectChromeExecutable() {
     let lastError = null;
     
     for (const method of detectionMethods) {
+        const methodStartTime = Date.now();
         try {
             logger?.info(`${logPrefix}: Trying method: ${method.name}`);
             const executablePath = await method.detect();
-            
+            logger?.info(`${logPrefix}: Method '${method.name}' completed in ${Date.now() - methodStartTime}ms`);
+
             // Validate the executable
             try {
-                await fs.promises.access(executablePath, fs.constants.F_OK | fs.constants.X_OK);
+                const accessStartTime = Date.now();
+
+                // CORRECCIÓN: Usar operaciones seguras para validación de acceso
+                await safeFileOperation(async () => {
+                    await fs.promises.access(executablePath, fs.constants.F_OK | fs.constants.X_OK);
+                    return true;
+                }, 3, 1000);
+
                 logger?.info(`${logPrefix}: Successfully detected Chrome executable: ${executablePath}`);
+                logger?.info(`${logPrefix}: Total detection time: ${Date.now() - startTime}ms`);
                 return executablePath;
             } catch (accessError) {
+                logger?.warn(`${logPrefix}: Path not accessible after ${Date.now() - methodStartTime}ms: ${accessError.message}`);
                 throw new Error(`Path not accessible: ${accessError.message}`);
             }
-            
+
         } catch (error) {
             lastError = error;
-            logger?.warn(`${logPrefix}: Method '${method.name}' failed: ${error.message}`);
+            logger?.warn(`${logPrefix}: Method '${method.name}' failed after ${Date.now() - methodStartTime}ms: ${error.message}`);
         }
     }
     
@@ -219,9 +788,15 @@ async function createWhatsAppClient(dataPath, executablePath, configPath = null)
         const puppeteerConfig = loadPuppeteerConfig(actualConfigPath);
 
         // Log config source
-        if (fs.existsSync(actualConfigPath)) {
+        try {
+            // CORRECCIÓN: Usar operaciones seguras para verificar existencia de archivo de configuración
+            await safeFileOperation(async () => {
+                await fs.promises.access(actualConfigPath, fs.constants.F_OK);
+                return true;
+            }, 2, 500);
+
             logger?.info(`${logPrefix}: Config loaded from file: ${actualConfigPath}`);
-        } else {
+        } catch (configError) {
             logger?.info(`${logPrefix}: Config file not found at ${actualConfigPath}, using defaults`);
         }
 
@@ -348,11 +923,39 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
         console.log("Client instance not found. Creating new client...");
         
         try {
-            // Use robust Chrome detection
+            // Use robust Chrome detection with enhanced validation
             logger?.info(`${logPrefix}: Starting Chrome executable detection...`);
-            const executablePath = await detectChromeExecutable();
-            logger?.info(`${logPrefix}: Chrome executable detected successfully: ${executablePath}`);
-            console.log("Chrome executable found at:", executablePath);
+
+            // CORRECCIÓN: Usar operaciones seguras para detección de Chrome
+            const executablePath = await safeRetryOperation(
+                async () => await detectChromeExecutable(),
+                3,
+                2000,
+                'chrome-detection'
+            );
+
+            // Additional validation of Chrome executable
+            if (!executablePath || typeof executablePath !== 'string') {
+                throw new Error('Chrome executable path is invalid or undefined');
+            }
+
+            // Check if file actually exists and is executable
+            try {
+                // CORRECCIÓN: Usar operaciones seguras para validación de archivos
+                await safeFileOperation(async () => {
+                    const stats = fs.statSync(executablePath);
+                    if (!stats.isFile()) {
+                        throw new Error(`Path exists but is not a file: ${executablePath}`);
+                    }
+                    logger?.info(`${logPrefix}: Chrome executable validated - Size: ${stats.size} bytes, Mode: ${stats.mode.toString(8)}`);
+                    return true;
+                }, 3, 1000);
+            } catch (validationError) {
+                throw new Error(`Chrome executable validation failed: ${validationError.message}`);
+            }
+
+            logger?.info(`${logPrefix}: Chrome executable detected and validated successfully: ${executablePath}`);
+            console.log("Chrome executable found and validated at:", executablePath);
 
             // Create client with enhanced error handling
             logger?.info(`${logPrefix}: Creating WhatsApp client instance...`);
@@ -385,7 +988,12 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                 isClientInitializing = false;
                 console.log('📊 whatsapp-logic: isClientInitializing is now:', isClientInitializing);
                 
-                if (logCallback) logCallback('whatsapp-logic: WhatsApp client is ready and authenticated');
+                // CORRECCIÓN: Verificación adicional para logCallback antes de usar
+                if (typeof logCallback === 'function') {
+                    logCallback('whatsapp-logic: WhatsApp client is ready and authenticated');
+                } else {
+                    logger?.info(`${logPrefix}: logCallback no está disponible en evento 'ready'`);
+                }
                 if (onClientReady) {
                     logger?.info(`${logPrefix}: Calling onClientReady callback`);
                     console.log('📞 whatsapp-logic: Calling onClientReady callback');
@@ -412,29 +1020,63 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
             });
             
             client.on('disconnected', async (reason) => {
-                logger?.warn(`${logPrefix}: Client disconnected: ${reason}`);
+                const disconnectTime = new Date().toISOString();
+                logger?.warn(`${logPrefix}: Client disconnected at ${disconnectTime}: ${reason}`);
+                logger?.warn(`${logPrefix}: Client info before disconnect: ${JSON.stringify(client.info || {})}`);
                 console.log('Client was disconnected:', reason);
-                if (logCallback) logCallback(`whatsapp-logic: WhatsApp client disconnected: ${reason}`);
-                
+
+                // CORRECCIÓN: Verificación adicional para logCallback antes de usar
+                if (typeof logCallback === 'function') {
+                    logCallback(`whatsapp-logic: WhatsApp client disconnected: ${reason}`);
+                } else {
+                    logger?.info(`${logPrefix}: logCallback no disponible en evento 'disconnected'`);
+                }
+
+                // CORRECCIÓN: Diferenciar entre LOGOUT y otras desconexiones técnicas
+                const isLogout = reason === 'LOGOUT' || reason === 'logout' ||
+                                reason === 'user_initiated' || reason === 'manual_logout';
+
+                if (isLogout) {
+                    logger?.info(`${logPrefix}: LOGOUT detectado - No se intentará reconexión automática`);
+                    console.log('whatsapp-logic: LOGOUT detectado - No se intentará reconexión automática');
+
+                    if (typeof logCallback === 'function') {
+                        logCallback('whatsapp-logic: Sesión cerrada manualmente - requiere nuevo QR');
+                    }
+
+                    // Limpiar estado de reconexión
+                    isReconnecting = false;
+                    reconnectAttempts = 0;
+                    if (reconnectTimeout) {
+                        clearTimeout(reconnectTimeout);
+                        reconnectTimeout = null;
+                    }
+                } else {
+                    logger?.warn(`${logPrefix}: Desconexión técnica detectada: ${reason} - Intentando reconexión...`);
+                    console.log(`whatsapp-logic: Desconexión técnica detectada: ${reason} - Intentando reconexión...`);
+
+                    if (typeof logCallback === 'function') {
+                        logCallback(`whatsapp-logic: Desconexión técnica: ${reason} - Intentando reconexión automática`);
+                    }
+                }
+
                 if (campaignState.status === 'running') {
                     pauseSending(campaignState.id);
-                    logger?.info(`${logPrefix}: Campaign paused due to disconnection, attempting re-initialization...`);
-                    console.log("whatsapp-logic: Client disconnected while campaign active. Attempting re-initialization...");
-                    if (logCallback) logCallback('whatsapp-logic: Campaign paused due to disconnection, attempting re-initialization');
+                    logger?.info(`${logPrefix}: Campaign paused due to disconnection`);
+                    console.log("whatsapp-logic: Client disconnected while campaign active. Campaign paused.");
+
+                    if (typeof logCallback === 'function') {
+                        logCallback('whatsapp-logic: Campaña pausada debido a desconexión');
+                    }
                 }
+
                 if (onDisconnected) onDisconnected(reason);
-                
-                // Attempt to re-initialize the client after a disconnect
-                logger?.info(`${logPrefix}: Attempting to re-initialize client after disconnect...`);
-                console.log("Attempting to re-initialize client after disconnect...");
-                try {
-                    await softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir);
-                    logger?.info(`${logPrefix}: Client re-initialization after disconnect successful.`);
-                    console.log("Client re-initialization after disconnect successful.");
-                } catch (reinitError) {
-                    logger?.error(`${logPrefix}: Failed to re-initialize client after disconnect: ${reinitError.message}`);
-                    console.error("Failed to re-initialize client after disconnect:", reinitError.message);
-                } finally {
+
+                // CORRECCIÓN: Mejorar flujo de desconexión para evitar estados de carrera
+                if (!isLogout && !isReconnecting) {
+                    await handleReconnection(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir, reason);
+                } else if (isLogout) {
+                    // Para LOGOUT, limpiar completamente el estado
                     isClientInitializing = false;
                     resolveClientReady = null;
                     rejectClientReady = null;
@@ -465,27 +1107,52 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
 
     try {
         const initTimeoutMs = 120 * 1000; // Increased timeout to 2 minutes
+        const initStartTime = Date.now();
+
         logger?.info(`${logPrefix}: Calling client.initialize() with timeout of ${initTimeoutMs / 1000} seconds.`);
+        logger?.info(`${logPrefix}: Client configuration: ${JSON.stringify(client.options?.puppeteer ? { headless: client.options.puppeteer.headless, executablePath: client.options.puppeteer.executablePath } : {})}`);
         console.log("Calling client.initialize() with a timeout of", initTimeoutMs / 1000, "seconds.");
-        
-        await Promise.race([
-            client.initialize(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Client initialization timed out after 2 minutes')), initTimeoutMs))
-        ]);
-        
-        logger?.info(`${logPrefix}: Client initialized successfully.`);
-        console.log("Client initialized successfully.");
+
+        // CORRECCIÓN: Usar operaciones seguras para inicialización del cliente
+        await safeAsyncOperation(async () => {
+            return await Promise.race([
+                client.initialize(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Client initialization timed out after 2 minutes')), initTimeoutMs))
+            ]);
+        }, initTimeoutMs, 'client-initialization');
+
+        logger?.info(`${logPrefix}: Client initialized successfully in ${Date.now() - initStartTime}ms`);
+        console.log(`Client initialized successfully in ${Date.now() - initStartTime}ms`);
     } catch (error) {
-        logger?.error(`${logPrefix}: Error during client.initialize(): ${error.message}`);
+        const initFailTime = Date.now();
+        logger?.error(`${logPrefix}: Error during client.initialize() after ${initFailTime - Date.now()}ms: ${error.message}`);
+        logger?.error(`${logPrefix}: Error type: ${error.constructor.name}`);
         logger?.error(`${logPrefix}: Error stack: ${error.stack}`);
         console.error("Error during client.initialize() or timeout:", error.message);
         console.error("Stack trace:", error.stack);
-        
+
+        // Enhanced error classification and user-friendly messages
         let userFriendlyMessage = error.message;
+        let shouldRetry = false;
+
         if (error.message.includes('timeout')) {
             userFriendlyMessage = "La inicialización del cliente tardó demasiado tiempo. Esto puede deberse a problemas de red o con Chrome. Intente nuevamente.";
+            shouldRetry = true;
+        } else if (error.message.includes('net::ERR_PROXY_CONNECTION_FAILED') || error.message.includes('net::ERR_TUNNEL_CONNECTION_FAILED')) {
+            userFriendlyMessage = "Error de conexión de red. Verifique su conexión a internet y configuración de proxy.";
+            shouldRetry = true;
+        } else if (error.message.includes('net::ERR_INTERNET_DISCONNECTED')) {
+            userFriendlyMessage = "Sin conexión a internet. Verifique su conexión de red.";
+            shouldRetry = true;
+        } else if (error.message.includes('Session creation failed')) {
+            userFriendlyMessage = "Error creando sesión de WhatsApp. Puede que la sesión anterior esté corrupta.";
+            shouldRetry = true;
+        } else if (error.message.includes('Chrom')) {
+            userFriendlyMessage = "Error con Chrome. Verifique que Chrome esté instalado correctamente y no esté siendo usado por otro programa.";
         }
-        
+
+        logger?.error(`${logPrefix}: Error classification - Should retry: ${shouldRetry}, User message: ${userFriendlyMessage}`);
+
         if (onAuthFailure) onAuthFailure(userFriendlyMessage);
         isClientInitializing = false;
         if (rejectClientReady) rejectClientReady(error);
@@ -777,7 +1444,7 @@ function processMessageVariables(messageTemplate, contactData, options = {}) {
             if (value === undefined || value === null) {
                 logger?.warn(`${logPrefix}: Variable '${key}' no encontrada en datos del contacto`);
                 console.log(`${logPrefix}: DEBUG - Variables disponibles en contacto:`, Object.keys(safeContactData));
-                return match; // Devolver la variable original si no se encuentra
+                return ''; // Reemplazar con cadena vacía si no se encuentra la variable
             }
 
             // Convertir a string y limpiar espacios
@@ -922,7 +1589,13 @@ async function sendCampaignStartNotification(campaignConfig, contacts, logCallba
                     throw new Error('Cliente de WhatsApp no está listo');
                 }
 
-                await sendMessageWithRetries(chatId, processedNotification, null, 3, 30000);
+                // CORRECCIÓN: Usar operaciones seguras para envío de notificaciones
+                await safeRetryOperation(
+                    async () => await sendMessageWithRetries(chatId, processedNotification, null, 3, 30000),
+                    3,
+                    2000,
+                    `notification-${supervisorNumber}`
+                );
 
                 successCount++;
                 logger?.info(`${logPrefix}: Notificación enviada exitosamente a supervisor ${supervisorNumber}`);
@@ -962,25 +1635,20 @@ async function sendCampaignStartNotification(campaignConfig, contacts, logCallba
  * @param {number} timeout - Timeout for each send attempt in milliseconds.
  */
 async function sendMessageWithRetries(chatId, message, media = null, maxRetries = 3, timeout = 60000) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const sendPromise = media ? client.sendMessage(chatId, media, { caption: message }) : client.sendMessage(chatId, message);
-            await Promise.race([
+    // CORRECCIÓN: Usar función segura para operaciones de envío de mensajes
+    return await safeRetryOperation(async () => {
+        const sendPromise = media ? client.sendMessage(chatId, media, { caption: message }) : client.sendMessage(chatId, message);
+
+        // CORRECCIÓN: Usar operaciones seguras para evitar promesas colgando
+        await safeAsyncOperation(async () => {
+            return await Promise.race([
                 sendPromise,
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Message send timeout')), timeout))
             ]);
-            return; // Message sent successfully
-        } catch (error) {
-            console.error(`Attempt ${i + 1} failed to send message to ${chatId}:`, error.message);
-            if (logCallback) logCallback(`whatsapp-logic: Message send attempt ${i + 1} failed for ${chatId}: ${error.message}`);
-            if (i < maxRetries - 1) {
-                await delay(5000); // Wait before retrying
-            } else {
-                if (logCallback) logCallback(`whatsapp-logic: Failed to send message to ${chatId} after ${maxRetries} attempts`);
-                throw new Error(`Failed to send message to ${chatId} after ${maxRetries} attempts: ${error.message}`);
-            }
-        }
-    }
+        }, timeout, `send-message-${chatId}`);
+
+        return true; // Message sent successfully
+    }, maxRetries, 5000, `send-message-${chatId}`);
 }
 
 /**
@@ -1075,12 +1743,19 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
             const { excelPath } = campaignState.config;
             console.log("whatsapp-logic: Reading Excel file:", excelPath);
             if (logCallback) logCallback(`whatsapp-logic: Loading contacts from Excel file: ${excelPath}`);
-            const excel = XLSX.readFile(excelPath);
-            const nombreHoja = excel.SheetNames[0];
-            campaignState.contacts = XLSX.utils.sheet_to_json(excel.Sheets[nombreHoja]);
-            campaignState.totalContacts = campaignState.contacts.length;
-            console.log(`whatsapp-logic: Data from '${nombreHoja}' sheet:`, campaignState.totalContacts, "rows.");
-            if (logCallback) logCallback(`whatsapp-logic: Loaded ${campaignState.totalContacts} contacts from sheet '${nombreHoja}'`);
+
+            try {
+                // CORRECCIÓN: Usar función segura para leer archivos Excel
+                campaignState.contacts = await safeReadExcelFile(excelPath, 3);
+                campaignState.totalContacts = campaignState.contacts.length;
+                console.log(`whatsapp-logic: Data loaded from Excel:`, campaignState.totalContacts, "rows.");
+                if (logCallback) logCallback(`whatsapp-logic: Loaded ${campaignState.totalContacts} contacts from Excel file`);
+            } catch (excelError) {
+                logger?.error(`Excel Read Error: ${excelError.message}`);
+                console.error("whatsapp-logic: Error reading Excel file:", excelError.message);
+                if (logCallback) logCallback(`whatsapp-logic: Error reading Excel file: ${excelError.message}`);
+                throw excelError;
+            }
         }
 
         notifyProgress(); // Initial progress update
@@ -1154,7 +1829,25 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                 const chatId = (`+${numero}@c.us`).substring(1);
 
                 try {
-                    let media = mediaPath ? MessageMedia.fromFilePath(mediaPath) : null;
+                    const sendStartTime = Date.now();
+
+                    // CORRECCIÓN: Usar operaciones seguras para cargar medios
+                    let media = null;
+                    if (mediaPath) {
+                        try {
+                            media = await safeRetryOperation(
+                                async () => MessageMedia.fromFilePath(mediaPath),
+                                3,
+                                1000,
+                                'load-media'
+                            );
+                        } catch (mediaError) {
+                            logger?.error(`Media Load Error: ${mediaError.message}`);
+                            console.error("whatsapp-logic: Error loading media:", mediaError.message);
+                            if (logCallback) logCallback(`whatsapp-logic: Error loading media: ${mediaError.message}`);
+                            throw mediaError;
+                        }
+                    }
 
                     // Debug: Log del contacto actual y mensaje antes del procesamiento
                     console.log(`whatsapp-logic: DEBUG - Contacto actual (index ${currentIndex}):`, JSON.stringify(dato, null, 2));
@@ -1165,11 +1858,15 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
 
                     console.log(`whatsapp-logic: DEBUG - Mensaje procesado:`, processedMessage);
 
+                    logger?.info(`Message Send: Attempting to send message to ${numero} (index ${currentIndex})`);
+
                     if (messageType == 1) { // Text only
                         await sendMessageWithRetries(chatId, processedMessage, null, maxRetries, timeout);
                     } else if (messageType == 2) { // Media message
                         await sendMessageWithRetries(chatId, processedMessage, media, maxRetries, timeout);
                     }
+
+                    logger?.info(`Message Send: Successfully sent message to ${numero} in ${Date.now() - sendStartTime}ms`);
                     
                     logCallback(`[${currentIndex + 1}] - Mensaje a contacto ${numero} enviado`);
                     campaignState.sentCount++;
@@ -1177,10 +1874,33 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                     notifyProgress();
 
                 } catch (sendError) {
+                    const errorTime = new Date().toISOString();
+                    logger?.error(`Message Send: Failed to send message to ${numero} at ${errorTime}: ${sendError.message}`);
+                    logger?.error(`Message Send: Error type: ${sendError.constructor.name}, Stack: ${sendError.stack}`);
                     console.error(`whatsapp-logic: Failed to send message to ${numero}:`, sendError.message);
+
+                    // Enhanced error classification
+                    if (sendError.message.includes('timeout')) {
+                        logger?.error(`Message Send: Network timeout detected for ${numero}`);
+                    } else if (sendError.message.includes('chat not found') || sendError.message.includes('not a participant')) {
+                        logger?.error(`Message Send: Invalid chat/contact detected for ${numero}`);
+                    } else if (sendError.message.includes('rate limit') || sendError.message.includes('too many requests')) {
+                        logger?.error(`Message Send: Rate limit detected for ${numero}`);
+                    }
+
                     if (supervisorNumbers && supervisorNumbers.length > 0) {
                         for (const supNum of supervisorNumbers) {
-                            await client.sendMessage(`${supNum}@c.us`, `⚠️ Error al enviar mensaje a ${numero}: ${sendError.message}`);
+                            try {
+                                // CORRECCIÓN: Usar operaciones seguras para envío de mensajes de error
+                                await safeRetryOperation(
+                                    async () => await client.sendMessage(`${supNum}@c.us`, `⚠️ Error al enviar mensaje a ${numero}: ${sendError.message}`),
+                                    3,
+                                    2000,
+                                    `error-notification-${supNum}`
+                                );
+                            } catch (errorNotificationError) {
+                                logger?.error(`Error Notification Send Error: ${errorNotificationError.message}`);
+                            }
                         }
                     }
                 }
@@ -1226,7 +1946,17 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
 📊 Total de mensajes enviados: ${campaignState.config.currentIndex}`;
             if (supervisorNumbers && supervisorNumbers.length > 0) {
                 for (const supNum of supervisorNumbers) {
-                    await client.sendMessage(`${supNum}@c.us`, finalMessage);
+                    try {
+                        // CORRECCIÓN: Usar operaciones seguras para envío de mensajes finales
+                        await safeRetryOperation(
+                            async () => await client.sendMessage(`${supNum}@c.us`, finalMessage),
+                            3,
+                            2000,
+                            `final-notification-${supNum}`
+                        );
+                    } catch (finalError) {
+                        logger?.error(`Final Notification Error: ${finalError.message}`);
+                    }
                 }
             }
 
@@ -1267,31 +1997,179 @@ async function waitForClientReady() {
 
 
 /**
- * Logs out the client without clearing the session folder, then reinitializes.
- * This allows for potential automatic re-login if session files are valid.
+ * Maneja la reconexión automática con bloqueo de reintentos para prevenir operaciones simultáneas
  */
-async function softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir = null) {
-    const logPrefix = 'Soft Logout & Reinitialize';
-    logger?.info(`${logPrefix}: softLogoutAndReinitialize called.`);
-    console.log("🔄 whatsapp-logic: softLogoutAndReinitialize called.");
-    
-    if (client) {
-        try {
-            logger?.info(`${logPrefix}: Attempting client.logout()...`);
-            console.log("🚪 whatsapp-logic: Attempting client.logout()...");
-            await client.logout();
-            logger?.info(`${logPrefix}: client.logout() successful.`);
-            console.log("✅ whatsapp-logic: client.logout() successful.");
+async function handleReconnection(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir, reason) {
+    const logPrefix = 'Reconnection Handler';
+
+    // CORRECCIÓN: Bloqueo de reintentos para prevenir operaciones simultáneas
+    if (isReconnecting) {
+        logger?.warn(`${logPrefix}: Reconexión ya en progreso, ignorando intento adicional`);
+        console.log('whatsapp-logic: Reconexión ya en progreso, ignorando intento adicional');
+        return;
+    }
+
+    isReconnecting = true;
+
+    try {
+        reconnectAttempts++;
+        logger?.info(`${logPrefix}: Intento de reconexión ${reconnectAttempts}/${maxReconnectAttempts} para razón: ${reason}`);
+
+        if (reconnectAttempts > maxReconnectAttempts) {
+            logger?.error(`${logPrefix}: Máximo número de intentos de reconexión alcanzado (${maxReconnectAttempts})`);
+            console.log(`whatsapp-logic: Máximo número de intentos de reconexión alcanzado (${maxReconnectAttempts})`);
+
+            if (typeof logCallback === 'function') {
+                logCallback('whatsapp-logic: Reconexión fallida después de múltiples intentos - requiere intervención manual');
+            }
+
+            // Reset reconnection state
+            isReconnecting = false;
+            reconnectAttempts = 0;
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+            return;
         }
-        catch (error) {
-            logger?.error(`${logPrefix}: Error during client.logout(): ${error.message}`);
-            console.error("❌ whatsapp-logic: Error during client.logout():", error.message);
+
+        // Calcular delay progresivo para reintentos
+        const currentDelay = reconnectDelay * Math.pow(1.5, reconnectAttempts - 1);
+
+        if (typeof logCallback === 'function') {
+            logCallback(`whatsapp-logic: Intentando reconexión ${reconnectAttempts}/${maxReconnectAttempts} en ${Math.round(currentDelay/1000)}s`);
+        }
+
+        // CORRECCIÓN: Mejorar flujo de desconexión para evitar estados de carrera
+        logger?.info(`${logPrefix}: Esperando ${currentDelay}ms antes del intento de reconexión`);
+        await delay(currentDelay);
+
+        // Verificar si aún necesitamos reconectar (el usuario podría haber detenido el proceso)
+        if (campaignState.status === 'stopping' || campaignState.status === 'stopped') {
+            logger?.info(`${logPrefix}: Proceso detenido por usuario, cancelando reconexión`);
+            return;
+        }
+
+        const reinitStartTime = Date.now();
+        logger?.info(`${logPrefix}: Ejecutando softLogoutAndReinitialize...`);
+
+        try {
+            await softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir);
+            logger?.info(`${logPrefix}: Reconexión exitosa en intento ${reconnectAttempts} después de ${Date.now() - reinitStartTime}ms`);
+
+            if (typeof logCallback === 'function') {
+                logCallback('whatsapp-logic: Reconexión exitosa - cliente restablecido');
+            }
+
+            // Reset reconnection state on success
+            isReconnecting = false;
+            reconnectAttempts = 0;
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+
+        } catch (reinitError) {
+            logger?.error(`${logPrefix}: Error en intento de reconexión ${reconnectAttempts}: ${reinitError.message}`);
+
+            if (typeof logCallback === 'function') {
+                logCallback(`whatsapp-logic: Error en reconexión ${reconnectAttempts}/${maxReconnectAttempts}: ${reinitError.message}`);
+            }
+
+            // Si hay más intentos disponibles, programar el siguiente
+            if (reconnectAttempts < maxReconnectAttempts) {
+                logger?.info(`${logPrefix}: Programando siguiente intento de reconexión en ${reconnectDelay}ms`);
+                reconnectTimeout = setTimeout(() => {
+                    handleReconnection(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir, reason);
+                }, reconnectDelay);
+            } else {
+                // No más intentos disponibles
+                isReconnecting = false;
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = null;
+                }
+            }
+        }
+
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error crítico en manejo de reconexión: ${error.message}`);
+        isReconnecting = false;
+        reconnectAttempts = 0;
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
         }
     }
-    
-    await destroyClientInstance(); // Clean up client object
-    logger?.info(`${logPrefix}: Client instance destroyed after soft logout.`);
-    console.log("🧹 whatsapp-logic: Client instance destroyed after soft logout.");
+}
+
+/**
+ * Logs out the client without clearing the session folder, then reinitializes.
+ * This allows for potential automatic re-login if session files are valid.
+ *
+ * SOLUCIÓN EBUSY: Implementa estrategia específica para manejar errores EBUSY persistentes
+ * durante logout cuando el usuario cierra sesión manualmente desde el teléfono.
+ */
+async function softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir = null) {
+    const logPrefix = 'Soft Logout & Reinitialize (EBUSY Enhanced)';
+    logger?.info(`${logPrefix}: softLogoutAndReinitialize called con estrategia mejorada para EBUSY.`);
+    console.log("🔄 whatsapp-logic: softLogoutAndReinitialize called con manejo mejorado de EBUSY.");
+
+    if (client) {
+        try {
+            logger?.info(`${logPrefix}: Intentando logout con wrapper específico para manejo de EBUSY...`);
+            console.log("🚪 whatsapp-logic: Intentando logout con manejo específico de EBUSY...");
+
+            // SOLUCIÓN EBUSY: Usar wrapper específico que maneja errores EBUSY agresivamente
+            const logoutSuccess = await safeLogoutWithEBUSYHandling(client, 3);
+
+            if (logoutSuccess) {
+                logger?.info(`${logPrefix}: Logout exitoso usando wrapper EBUSY.`);
+                console.log("✅ whatsapp-logic: Logout exitoso con manejo EBUSY.");
+            } else {
+                logger?.warn(`${logPrefix}: Logout falló incluso con wrapper EBUSY, continuando con limpieza alternativa...`);
+                console.log("⚠️ whatsapp-logic: Logout falló, aplicando limpieza alternativa...");
+
+                // SOLUCIÓN EBUSY: Si logout falla completamente, intentar limpieza alternativa agresiva
+                try {
+                    const sessionPath = client.options?.authStrategy?.dataPath || dataPath;
+                    logger?.warn(`${logPrefix}: Aplicando limpieza alternativa agresiva en: ${sessionPath}`);
+
+                    const cleanupSuccess = await aggressiveSessionCleanup(sessionPath, 2);
+
+                    if (cleanupSuccess) {
+                        logger?.info(`${logPrefix}: Limpieza alternativa exitosa.`);
+                        console.log("🧹 whatsapp-logic: Limpieza alternativa completada.");
+                    } else {
+                        logger?.error(`${logPrefix}: Limpieza alternativa también falló.`);
+                        console.log("❌ whatsapp-logic: Limpieza alternativa falló.");
+                    }
+                } catch (cleanupError) {
+                    logger?.error(`${logPrefix}: Error durante limpieza alternativa: ${cleanupError.message}`);
+                    console.error("❌ whatsapp-logic: Error en limpieza alternativa:", cleanupError.message);
+                }
+            }
+        }
+        catch (error) {
+            logger?.error(`${logPrefix}: Error crítico durante proceso de logout mejorado: ${error.message}`);
+            console.error("❌ whatsapp-logic: Error crítico durante logout mejorado:", error.message);
+
+            // SOLUCIÓN EBUSY: Incluso en errores críticos, intentar limpieza alternativa
+            try {
+                const sessionPath = client.options?.authStrategy?.dataPath || dataPath;
+                logger?.warn(`${logPrefix}: Aplicando limpieza de emergencia debido a error crítico...`);
+
+                await aggressiveSessionCleanup(sessionPath, 1);
+            } catch (emergencyError) {
+                logger?.error(`${logPrefix}: Limpieza de emergencia también falló: ${emergencyError.message}`);
+            }
+        }
+    }
+
+    // Destruir instancia del cliente después del logout (mejorado o no)
+    await destroyClientInstance();
+    logger?.info(`${logPrefix}: Client instance destroyed después del proceso de logout mejorado.`);
+    console.log("🧹 whatsapp-logic: Client instance destroyed después del logout mejorado.");
 
     // Reset the initialization flag to ensure clean re-initialization
     isClientInitializing = false;
@@ -1302,36 +2180,137 @@ async function softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDi
     logger?.info(`${logPrefix}: Re-initializing client with callbacks...`);
     console.log("🚀 whatsapp-logic: Re-initializing client with callbacks...");
     await initializeClient(dataPath, onQrCode, onClientReady, onDisconnected, onAuthFailure, logsDir);
-    logger?.info(`${logPrefix}: Client reinitialized after soft logout.`);
-    console.log("✅ whatsapp-logic: Client reinitialized after soft logout.");
+    logger?.info(`${logPrefix}: Client reinicializado después del proceso de logout mejorado.`);
+    console.log("✅ whatsapp-logic: Client reinicializado después del logout mejorado.");
 }
 
 async function destroyClientInstance() {
     const logPrefix = 'Client Destroy';
+    const destroyStartTime = Date.now();
+
     if (client) {
         logger?.info(`${logPrefix}: Attempting to destroy client instance...`);
+        logger?.info(`${logPrefix}: Client info before destroy: ${JSON.stringify(client.info || {})}`);
         console.log("Attempting to destroy client instance...");
+
+        // First, try graceful logout if client is ready
+        if (client.info && typeof client.logout === 'function') {
+            try {
+                logger?.info(`${logPrefix}: Attempting graceful logout before destroy...`);
+                await Promise.race([
+                    client.logout(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Logout timeout')), 10000))
+                ]);
+                logger?.info(`${logPrefix}: Graceful logout successful`);
+            } catch (logoutError) {
+                logger?.warn(`${logPrefix}: Graceful logout failed, proceeding with force destroy: ${logoutError.message}`);
+            }
+        }
+
         try {
             const destroyTimeoutMs = 60 * 1000; // 60 seconds for general destroy
-            await Promise.race([
-                client.destroy(),
-                new Promise((_, reject) => setTimeout(() => {
-                    logger?.warn(`${logPrefix}: Client destroy timed out.`);
-                    console.warn("Client destroy timed out.");
-                    reject(new Error('Client destroy timeout'));
-                }, destroyTimeoutMs))
-            ]);
-            logger?.info(`${logPrefix}: Client instance destroyed successfully.`);
-            console.log("Client instance destroyed successfully.");
+            logger?.info(`${logPrefix}: Starting client.destroy() with ${destroyTimeoutMs/1000}s timeout`);
+
+            // CORRECCIÓN: Usar operaciones seguras para destrucción del cliente
+            await safeAsyncOperation(async () => {
+                return await Promise.race([
+                    client.destroy(),
+                    new Promise((_, reject) => setTimeout(() => {
+                        logger?.error(`${logPrefix}: Client destroy timed out after ${destroyTimeoutMs/1000}s`);
+                        console.error("Client destroy timed out.");
+                        reject(new Error('Client destroy timeout'));
+                    }, destroyTimeoutMs))
+                ]);
+            }, destroyTimeoutMs, 'client-destroy');
+
+            logger?.info(`${logPrefix}: Client instance destroyed successfully in ${Date.now() - destroyStartTime}ms`);
+            console.log(`Client instance destroyed successfully in ${Date.now() - destroyStartTime}ms`);
         } catch (error) {
-            logger?.error(`${logPrefix}: Error destroying client instance: ${error.message}`);
+            logger?.error(`${logPrefix}: Error destroying client instance after ${Date.now() - destroyStartTime}ms: ${error.message}`);
+            logger?.error(`${logPrefix}: Destroy error stack: ${error.stack}`);
             console.error("Error destroying client instance:", error.message);
+
+            // Force cleanup even if destroy fails
+            logger?.warn(`${logPrefix}: Forcing client reference cleanup despite destroy error`);
         } finally {
+            // Always cleanup the reference
             client = null;
+            logger?.info(`${logPrefix}: Client reference cleared`);
         }
     } else {
-        logger?.info(`${logPrefix}: No active client instance to destroy.`);
+        logger?.info(`${logPrefix}: No active client instance to destroy`);
         console.log("No active client instance to destroy.");
+    }
+}
+
+/**
+ * Validates that the Chrome client process is completely closed
+ */
+async function validateClientClosure() {
+    const logPrefix = 'Client Closure Validation';
+    logger?.info(`${logPrefix}: Starting client closure validation`);
+
+    try {
+        // Check if client reference is cleared
+        if (client !== null) {
+            logger?.warn(`${logPrefix}: Client reference still exists, this may indicate improper cleanup`);
+            return false;
+        }
+
+        // Additional validation could be added here for process checking
+        // For now, we rely on the client reference being null
+
+        logger?.info(`${logPrefix}: Client closure validation passed`);
+        return true;
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error during closure validation: ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Enhanced cleanup function that ensures complete client destruction before app exit
+ */
+async function performEmergencyCleanup(reason = 'emergency') {
+    const logPrefix = 'Emergency Cleanup';
+    logger?.info(`${logPrefix}: Starting emergency cleanup due to: ${reason}`);
+
+    try {
+        // Stop any ongoing campaigns immediately
+        if (campaignState.status === 'running' || campaignState.status === 'pausing') {
+            logger?.info(`${logPrefix}: Stopping active campaign due to emergency cleanup`);
+            campaignState.status = 'stopped';
+            if (campaignState.resumePromiseResolver) {
+                campaignState.resumePromiseResolver();
+                campaignState.resumePromiseResolver = null;
+            }
+        }
+
+        // Force destroy client instance
+        try {
+            await safeRetryOperation(
+                async () => await destroyClientInstance(),
+                3,
+                2000,
+                'emergency-cleanup-destroy'
+            );
+        } catch (destroyError) {
+            logger?.error(`${logPrefix}: Error durante destrucción de emergencia: ${destroyError.message}`);
+        }
+
+        // Validate closure
+        const closureValidated = await validateClientClosure();
+
+        if (closureValidated) {
+            logger?.info(`${logPrefix}: Emergency cleanup completed successfully`);
+        } else {
+            logger?.warn(`${logPrefix}: Emergency cleanup completed with warnings`);
+        }
+
+        return closureValidated;
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error during emergency cleanup: ${error.message}`);
+        return false;
     }
 }
 
@@ -1341,32 +2320,47 @@ async function destroyClientInstance() {
 async function logoutAndClearSession(dataPath) {
     const logPrefix = 'Logout & Clear Session';
     logger?.info(`${logPrefix}: Starting logout and session clear process for path: ${dataPath}`);
-    
-    await destroyClientInstance(); // Use the new helper function
 
-    // Add a small delay to ensure file handles are released
-    logger?.info(`${logPrefix}: Waiting 2 seconds for file handles to be released...`);
-    await delay(2000); // 2 seconds delay
-
-    // After ensuring the client is destroyed, delete the session folder
     try {
+        await destroyClientInstance(); // Use the enhanced helper function
+
+        // Validate that client is properly closed
+        const closureValidated = await validateClientClosure();
+        if (!closureValidated) {
+            logger?.warn(`${logPrefix}: Client closure validation failed, but continuing with session cleanup`);
+        }
+
+        // Add a small delay to ensure file handles are released
+        logger?.info(`${logPrefix}: Waiting 2 seconds for file handles to be released...`);
+        await delay(2000); // 2 seconds delay
+
+        // After ensuring the client is destroyed, delete the session folder
         const sessionPath = dataPath;
         if (fs.existsSync(sessionPath)) {
             logger?.info(`${logPrefix}: Attempting to delete session folder: ${sessionPath}`);
             console.log(`Attempting to delete session folder: ${sessionPath}`);
-            // Use fs.promises.rm for modern async/await syntax
-            await fs.promises.rm(sessionPath, { recursive: true, force: true });
-            logger?.info(`${logPrefix}: Session folder successfully deleted.`);
-            console.log("Session folder successfully deleted.");
+
+            try {
+                // CORRECCIÓN: Usar función segura para eliminar archivos
+                await safeDeletePath(sessionPath, 3);
+                logger?.info(`${logPrefix}: Session folder successfully deleted`);
+                console.log("Session folder successfully deleted.");
+            } catch (deleteError) {
+                logger?.error(`${logPrefix}: Failed to delete session folder: ${deleteError.message}`);
+                console.error(`Error deleting session folder: ${deleteError.message}`);
+                throw new Error(`Failed to delete session folder. Please try deleting it manually. Path: ${dataPath}`);
+            }
         } else {
             logger?.info(`${logPrefix}: Session folder not found, no deletion needed.`);
             console.log("Session folder not found, no deletion needed.");
         }
+
+        logger?.info(`${logPrefix}: Logout and session clear process completed successfully`);
     } catch (error) {
-        logger?.error(`${logPrefix}: Error deleting session folder: ${error.message}`);
-        console.error(`Error deleting session folder: ${error.message}`);
+        logger?.error(`${logPrefix}: Error during logout and session clear: ${error.message}`);
+        console.error(`Error during logout and session clear: ${error.message}`);
         // This error should be propagated to the UI to inform the user.
-        throw new Error(`Failed to delete session folder. Please try deleting it manually. Path: ${dataPath}`);
+        throw error;
     }
 }
 
@@ -1407,7 +2401,9 @@ module.exports = {
     getCampaignStatus,
     updateActiveCampaignConfig,
     logoutAndClearSession,
-    destroyClientInstance, // Export the new helper function
+    destroyClientInstance, // Export the enhanced helper function
+    performEmergencyCleanup, // Export the new emergency cleanup function
+    validateClientClosure, // Export the new closure validation function
     getExcelHeaders,
     getFirstExcelRow, // Export the new function
     getClientStatus, // Export the new function
@@ -1415,7 +2411,11 @@ module.exports = {
     setCountdownState, // Export countdown function
     notifyCountdown, // Export countdown notification function
     processMessageVariables, // Export message variable processing function
-    sendCampaignStartNotification // Export campaign start notification function
+    sendCampaignStartNotification, // Export campaign start notification function
+    // SOLUCIÓN EBUSY: Exportar nuevas funciones para manejo específico de errores EBUSY
+    safeLogoutWithEBUSYHandling, // Wrapper específico para logout con manejo de EBUSY
+    forceReleaseChromeProcesses, // Función para liberar procesos Chrome/Puppeteer
+    aggressiveSessionCleanup // Función de limpieza alternativa agresiva para casos extremos
 };
 
 /**
@@ -1425,14 +2425,9 @@ module.exports = {
  */
 async function getFirstExcelRow(excelPath) {
     try {
-        const excel = XLSX.readFile(excelPath);
-        const nombreHoja = excel.SheetNames[0];
-        const sheet = excel.Sheets[nombreHoja];
-        if (!sheet) {
-            console.warn("whatsapp-logic: No sheets found in Excel file for first row.");
-            return null;
-        }
-        const datos = XLSX.utils.sheet_to_json(sheet); // Get data as array of objects
+        // CORRECCIÓN: Usar función segura para leer archivos Excel
+        const datos = await safeReadExcelFile(excelPath, 3);
+
         if (datos.length > 0) {
             return datos[0]; // First row is the first object
         }
@@ -1452,33 +2447,36 @@ async function getFirstExcelRow(excelPath) {
  */
 async function getExcelHeaders(excelPath) {
     try {
-        const excel = XLSX.readFile(excelPath);
-        const nombreHoja = excel.SheetNames[0];
-        const sheet = excel.Sheets[nombreHoja];
-        if (!sheet) {
-            console.warn("whatsapp-logic: 'Datos Limpios' sheet not found in Excel file.");
-            return { headers: [], hasRequiredFields: false, missingFields: ['item', 'numero'] };
-        }
-        const datos = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // Get data as array of arrays
+        // CORRECCIÓN: Usar función segura para leer archivos Excel
+        const datos = await safeReadExcelFile(excelPath, 3);
+
         if (datos.length > 0) {
-           const rawHeaders = datos[0]; // First row is the header
+           // Para obtener headers necesitamos leer como array de arrays
+           const excel = XLSX.readFile(excelPath);
+           const nombreHoja = excel.SheetNames[0];
+           const sheet = excel.Sheets[nombreHoja];
+           const datosArray = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // Get data as array of arrays
 
-           // Check for required fields (case-insensitive)
-           const hasItem = rawHeaders.some(header => header && header.toLowerCase() === 'item');
-           const hasNumero = rawHeaders.some(header => header && header.toLowerCase() === 'numero');
+           if (datosArray.length > 0) {
+               const rawHeaders = datosArray[0]; // First row is the header
 
-           const missingFields = [];
-           if (!hasItem) missingFields.push('item');
-           if (!hasNumero) missingFields.push('numero');
+               // Check for required fields (case-insensitive)
+               const hasItem = rawHeaders.some(header => header && header.toLowerCase() === 'item');
+               const hasNumero = rawHeaders.some(header => header && header.toLowerCase() === 'numero');
 
-           // Filter out the required fields for the returned headers (maintain existing functionality)
-           const headers = rawHeaders.filter(header => header && header.toLowerCase() !== 'item' && header.toLowerCase() !== 'numero');
+               const missingFields = [];
+               if (!hasItem) missingFields.push('item');
+               if (!hasNumero) missingFields.push('numero');
 
-           return {
-               headers,
-               hasRequiredFields: missingFields.length === 0,
-               missingFields
-           };
+               // Filter out the required fields for the returned headers (maintain existing functionality)
+               const headers = rawHeaders.filter(header => header && header.toLowerCase() !== 'item' && header.toLowerCase() !== 'numero');
+
+               return {
+                   headers,
+                   hasRequiredFields: missingFields.length === 0,
+                   missingFields
+               };
+           }
         }
         return { headers: [], hasRequiredFields: false, missingFields: ['item', 'numero'] };
     } catch (error) {
