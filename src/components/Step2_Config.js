@@ -10,6 +10,8 @@ import {
   AccordionPanel,
   Input,
   Label,
+  Select,
+  Option,
 } from '@fluentui/react-components';
 
 function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
@@ -25,10 +27,37 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
   const [timeout, setTimeoutValue] = useState(initialConfig.timeout ?? 60000);
   const [supervisorNumbers, setSupervisorNumbers] = useState(initialConfig.supervisorNumbers ? initialConfig.supervisorNumbers.join(',') : '');
   const [currentIndex, setCurrentIndex] = useState(initialConfig.currentIndex ?? 0);
+  const [countryCode, setCountryCode] = useState(initialConfig.countryCode ?? '');
   const [openAdvancedSettings, setOpenAdvancedSettings] = useState('none');
   const [excelHeaders, setExcelHeaders] = useState(initialConfig.excelHeaders ?? []);
 
   const messageTextareaRef = useRef(null);
+
+  // Lista de códigos de área comunes
+  const countryCodes = [
+    { value: '', label: '' },
+    { value: '1', label: '1 (Estados Unidos/Canadá)' },
+    { value: '52', label: '52 (México)' },
+    { value: '502', label: '502 (Guatemala)' },
+    { value: '503', label: '503 (El Salvador)' },
+    { value: '504', label: '504 (Honduras)' },
+    { value: '505', label: '505 (Nicaragua)' },
+    { value: '506', label: '506 (Costa Rica)' },
+    { value: '507', label: '507 (Panamá)' },
+    { value: '509', label: '509 (Haití)' },
+    { value: '598', label: '598 (Uruguay)' },
+    { value: '56', label: '56 (Chile)' },
+    { value: '57', label: '57 (Colombia)' },
+    { value: '58', label: '58 (Venezuela)' },
+    { value: '591', label: '591 (Bolivia)' },
+    { value: '593', label: '593 (Ecuador)' },
+    { value: '594', label: '594 (Guayana Francesa)' },
+    { value: '595', label: '595 (Paraguay)' },
+    { value: '596', label: '596 (Martinica)' },
+    { value: '597', label: '597 (Surinam)' },
+    { value: '599', label: '599 (Curazao)' },
+   
+  ];
 
   useEffect(() => {
     if (initialConfig.excelHeaders) {
@@ -65,7 +94,8 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
     maxRetries,
     timeout,
     supervisorNumbers: supervisorNumbers.split(',').map(num => num.trim()).filter(num => num),
-    currentIndex
+    currentIndex,
+    countryCode
   });
 
   const handleMediaSelect = async () => {
@@ -248,6 +278,21 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
                   onChange={(e) => setCurrentIndex(Number(e.target.value))}
                   min={0}
                 />
+              </div>
+              <div className="form-group">
+                <Label htmlFor="countryCode-select">Código de Área del País:</Label>
+                <Select
+                  id="countryCode-select"
+                  value={countryCode}
+                  onChange={(e, data) => setCountryCode(data.value)}
+                  placeholder="Selecciona un código de área"
+                >
+                  {countryCodes.map((code) => (
+                    <Option key={code.value} value={code.value}>
+                      {code.label}
+                    </Option>
+                  ))}
+                </Select>
               </div>
             </AccordionPanel>
           </AccordionItem>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ProgressBar, Button, Field, Textarea, Accordion, AccordionItem, AccordionHeader, AccordionPanel, Input, Label, Spinner } from '@fluentui/react-components';
+import { ProgressBar, Button, Field, Textarea, Accordion, AccordionItem, AccordionHeader, AccordionPanel, Input, Label, Spinner, Select, Option } from '@fluentui/react-components';
 
 const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, sessionStatus, qrCodeData }) => {
   const [openAdvancedSettings, setOpenAdvancedSettings] = useState('none');
@@ -11,6 +11,32 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
     totalTime: 0,
     type: 'idle'
   });
+
+  // Lista de códigos de área comunes
+  const countryCodes = [
+    { value: '', label: '' },
+    { value: '1', label: '1 (Estados Unidos/Canadá)' },
+    { value: '52', label: '52 (México)' },
+    { value: '502', label: '502 (Guatemala)' },
+    { value: '503', label: '503 (El Salvador)' },
+    { value: '504', label: '504 (Honduras)' },
+    { value: '505', label: '505 (Nicaragua)' },
+    { value: '506', label: '506 (Costa Rica)' },
+    { value: '507', label: '507 (Panamá)' },
+    { value: '509', label: '509 (Haití)' },
+    { value: '598', label: '598 (Uruguay)' },
+    { value: '56', label: '56 (Chile)' },
+    { value: '57', label: '57 (Colombia)' },
+    { value: '58', label: '58 (Venezuela)' },
+    { value: '591', label: '591 (Bolivia)' },
+    { value: '593', label: '593 (Ecuador)' },
+    { value: '594', label: '594 (Guayana Francesa)' },
+    { value: '595', label: '595 (Paraguay)' },
+    { value: '596', label: '596 (Martinica)' },
+    { value: '597', label: '597 (Surinam)' },
+    { value: '599', label: '599 (Curazao)' },
+    
+  ];
 
   // Function to format time in m:ss format
   const formatTime = (milliseconds) => {
@@ -316,6 +342,23 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                   min={0}
                   disabled={!isPaused}
                 />
+              </div>
+              <div className="form-group">
+                <Label htmlFor="countryCode-select">Código de Área del País:</Label>
+                <Select
+                  name="countryCode"
+                  id="countryCode-select"
+                  value={advancedConfig.countryCode ?? ''}
+                  onChange={(e, data) => handleConfigChange({ target: { name: 'countryCode', value: data.value } })}
+                  disabled={!isPaused}
+                  placeholder="Selecciona un código de área"
+                >
+                  {countryCodes.map((code) => (
+                    <Option key={code.value} value={code.value}>
+                      {code.label}
+                    </Option>
+                  ))}
+                </Select>
               </div>
               <div className="step-actions">
                 {isPaused ? (

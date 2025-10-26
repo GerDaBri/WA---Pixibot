@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { FluentProvider, webLightTheme, Spinner, Text, Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogActions, Button } from '@fluentui/react-components';
 import logo from '../assets/logos/logo-principal.png';
 import UpdateNotification from './components/UpdateNotification';
+import SessionStatusIndicator from './components/SessionStatusIndicator';
 
 // Lazy load step components
 const Step0_Login = lazy(() => import('./components/Step0_Login'));
@@ -58,7 +59,10 @@ function App() {
 
             window.electronAPI.on('qrcode', (url) => { // 'url' is now the data URL directly
                 setQrCodeData(url);
-                setSessionStatus('qr_received');
+                // Solo cambiar a 'qr_received' si el QR es válido (no vacío)
+                if (url && url.trim() !== '') {
+                    setSessionStatus('qr_received');
+                }
             });
 
             window.electronAPI.on('ready', () => {
@@ -74,10 +78,17 @@ function App() {
                 setSessionStatus('auth_failure');
             });
             window.electronAPI.on('disconnected', () => {
-                console.log("App.js: 'disconnected' event received - changing sessionStatus from", sessionStatus, "to 'disconnected'");
-                setSessionStatus('disconnected');
-                alert('Se cerró la sesión de WhatsApp. La aplicación se cerrará, por favor vuelva abrir.');
-                window.electronAPI.forceQuitApp();
+                console.log("App.js: 'disconnected' event received - auto-reconnecting");
+                setQrCodeData(''); // Clear previous QR code
+                handleReconnect(); // Automatically reconnect
+                setSessionStatus('initializing'); // Set to initializing to show spinner
+            });
+
+            window.electronAPI.on('browser-closed', (message) => {
+                console.log("App.js: 'browser-closed' event received:", message);
+                setQrCodeData(''); // Clear previous QR code
+                handleReconnect();
+                setSessionStatus('initializing');
             });
 
             window.electronAPI.on('log-message', (message) => {
@@ -236,10 +247,12 @@ function App() {
                     } else if (initialClientStatus.status === 'not_ready') {
                         console.log("📱 App.js: Client not ready (QR pending) - setting sessionStatus to 'qr_received'");
                         setSessionStatus('qr_received');
-                    } else {
-                        console.log("❌ App.js: Client disconnected - setting sessionStatus to 'disconnected'");
-                        setSessionStatus('disconnected');
-                    }
+                } else {
+                    console.log("❌ App.js: Client disconnected - auto-reconnecting");
+                    setQrCodeData(''); // Clear previous QR code
+                    handleReconnect();
+                    setSessionStatus('initializing');
+                }
 
                     // Start polling for client status if it's initializing
                     if (initialClientStatus.status === 'initializing') {
@@ -298,6 +311,27 @@ function App() {
             console.log("🔄 App.js: sessionStatus changed to 'qr_received' - starting polling");
             startClientStatusPolling();
         }
+
+        // Optimize polling: reduce frequency or add conditions to avoid excessive calls
+        if (clientStatusPollingRef.current) {
+            // Example: only poll if not ready and not too frequently
+            clearInterval(clientStatusPollingRef.current);
+            clientStatusPollingRef.current = setInterval(async () => {
+                const status = await window.electronAPI.getClientStatus();
+                if (status.status === 'ready') {
+                    clearInterval(clientStatusPollingRef.current);
+                    clientStatusPollingRef.current = null;
+                    setSessionStatus('ready');
+                } else if (status.status === 'disconnected') {
+                    clearInterval(clientStatusPollingRef.current);
+                    clientStatusPollingRef.current = null;
+                    setQrCodeData(''); // Clear previous QR code
+                    handleReconnect();
+                    setSessionStatus('initializing');
+                }
+                // Only log if status changes to avoid spam
+            }, 2000); // Increase interval to 2 seconds
+        }
     }, [sessionStatus]);
 
     // Function to start polling client status
@@ -327,8 +361,10 @@ function App() {
                     console.log("⏳ App.js: Polling detected client initializing - updating sessionStatus");
                     setSessionStatus('initializing');
                 } else if (status.status === 'disconnected') {
-                    console.log("❌ App.js: Polling detected client disconnected - updating sessionStatus");
-                    setSessionStatus('disconnected');
+                    console.log("❌ App.js: Polling detected client disconnected - auto-reconnecting");
+                    setQrCodeData(''); // Clear previous QR code
+                    handleReconnect();
+                    setSessionStatus('initializing');
                     // Stop polling on disconnect
                     clearInterval(clientStatusPollingRef.current);
                     clientStatusPollingRef.current = null;
@@ -337,7 +373,7 @@ function App() {
             } catch (error) {
                 console.error("❌ App.js: Error during client status polling:", error);
             }
-        }, 2000); // Poll every 2 seconds
+        }, 5000); // Poll every 5 seconds
     };
 
     // Function to stop polling
@@ -391,7 +427,8 @@ function App() {
                     const newCampaignState = await window.electronAPI.clearCampaignState();
                     setCampaign(newCampaignState);
                     const status = await window.electronAPI.getClientStatus();
-                    setSessionStatus(status.status);
+                    // Map 'not_ready' to 'qr_received' for consistency, as polling does
+                    setSessionStatus(status.status === 'not_ready' ? 'qr_received' : status.status);
                 }
                 setCurrentStep(1);
                 setLogs([]);
@@ -479,6 +516,21 @@ function App() {
         setUpdateInfo(null);
         setDownloadProgress(null);
         setUpdateError(null);
+    };
+
+    const handleReconnect = () => {
+        console.log('App.js: Reconnecting...');
+        if (window.electronAPI) {
+            window.electronAPI.initializeClient();
+        }
+    };
+
+    const handleLogout = async () => {
+        console.log('App.js: Logging out...');
+        if (window.electronAPI) {
+            await window.electronAPI.logout();
+            setSessionStatus('disconnected');
+        }
     };
 
     const renderStep = () => {
@@ -707,6 +759,7 @@ function App() {
                     )}
                 </header>
                 <div>
+                    <SessionStatusIndicator sessionStatus={sessionStatus} onReconnect={handleReconnect} onLogout={handleLogout} />
                     <h1>{currentStep === 1 ? 'Creación de nueva campaña' : currentStep === 0 ? 'Inicio de sesión' : ''}</h1>
                     {isApiReady ? (
                         <Suspense fallback={<Spinner label="Cargando..." />}>

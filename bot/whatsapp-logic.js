@@ -459,6 +459,10 @@ process.on('unhandledRejection', (reason, promise) => {
             isClientInitializing = false;
             resolveClientReady = null;
             rejectClientReady = null;
+        } else if (reason?.message?.includes('Session closed') || reason?.message?.includes('Protocol error')) {
+            // CORRECCIÓN: Manejar errores de sesión cerrada como warning, ya que son esperados después de destroy
+            logger?.warn(`Unhandled Promise Rejection (Session closed): ${errorInfo.reason}`);
+            logger?.info('Session Closed Handler: Error de sesión cerrada detectado, probablemente después de destroy - ignorando');
         }
     }
 
@@ -543,6 +547,62 @@ async function safeRetryOperation(operation, maxRetries = 3, baseDelay = 1000, o
     throw lastError;
 }
 
+// MEJORA: Función para verificar validez de sesión antes de inicialización completa
+async function checkSessionValidity(dataPath) {
+    const logPrefix = 'Session Validity Check';
+    logger?.info(`${logPrefix}: Checking session validity in path: ${dataPath}`);
+
+    try {
+        // Verificar si existe el directorio de sesión
+        if (!fs.existsSync(dataPath)) {
+            logger?.info(`${logPrefix}: Session directory does not exist - new session required`);
+            return { isValid: false, reason: 'no_session_directory' };
+        }
+
+        // Verificar archivos de sesión críticos
+        const sessionFiles = [
+            'session-new_client/SingletonLock',
+            'session-new_client/SingletonSocket',
+            'session-new_client/UserPrefs.json'
+        ];
+
+        let validFiles = 0;
+        let totalFiles = sessionFiles.length;
+
+        for (const file of sessionFiles) {
+            const filePath = path.join(dataPath, file);
+            try {
+                await safeFileOperation(async () => {
+                    await fs.promises.access(filePath, fs.constants.F_OK);
+                    return true;
+                }, 2, 500);
+
+                validFiles++;
+                logger?.info(`${logPrefix}: Found valid session file: ${file}`);
+            } catch (error) {
+                logger?.info(`${logPrefix}: Session file missing or inaccessible: ${file} - ${error.message}`);
+            }
+        }
+
+        // Verificar si tenemos suficientes archivos válidos para considerar la sesión válida
+        const minValidFiles = 2; // Requerir al menos 2 archivos válidos
+        const isValid = validFiles >= minValidFiles;
+
+        logger?.info(`${logPrefix}: Session validity check complete - Valid files: ${validFiles}/${totalFiles}, Is valid: ${isValid}`);
+
+        return {
+            isValid,
+            reason: isValid ? 'valid_session' : 'insufficient_session_files',
+            validFiles,
+            totalFiles
+        };
+
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error checking session validity: ${error.message}`);
+        return { isValid: false, reason: 'check_error', error: error.message };
+    }
+}
+
 // Función para cargar configuración de Puppeteer desde JSON
 function loadPuppeteerConfig(configPath) {
     try {
@@ -613,6 +673,134 @@ let client = null;
 let clientReadyPromise = null;
 let resolveClientReady = null;
 let isClientInitializing = false;
+
+// Variables para rastreo seguro de procesos del bot
+let botProcessPids = new Set(); // Set de PIDs de procesos Chrome/Puppeteer iniciados por el bot
+let processMonitoringInterval = null; // Intervalo para monitoreo de procesos
+let childProcess = null; // Referencia al proceso hijo si se usa separación
+let currentBrowserPid = null; // PID actual del proceso de Chrome del bot
+
+// Función para registrar un PID de proceso del bot
+function registerBotProcess(pid) {
+    if (pid && typeof pid === 'number') {
+        botProcessPids.add(pid);
+        logger?.info(`Process Monitor: Registered bot process PID: ${pid}`);
+        console.log(`Process Monitor: Registered bot process PID: ${pid}`);
+    }
+}
+
+// Función para desregistrar un PID de proceso del bot
+function unregisterBotProcess(pid) {
+    if (botProcessPids.has(pid)) {
+        botProcessPids.delete(pid);
+        logger?.info(`Process Monitor: Unregistered bot process PID: ${pid}`);
+        console.log(`Process Monitor: Unregistered bot process PID: ${pid}`);
+    }
+}
+
+// Función para limpiar todos los PIDs registrados
+function clearBotProcesses() {
+    botProcessPids.clear();
+    logger?.info(`Process Monitor: Cleared all registered bot process PIDs`);
+    console.log(`Process Monitor: Cleared all registered bot process PIDs`);
+}
+
+// Función para monitorear procesos del bot de manera segura
+async function monitorBotProcesses() {
+    const logPrefix = 'Process Monitor';
+    logger?.info(`${logPrefix}: Starting safe monitoring of bot processes`);
+
+    if (botProcessPids.size === 0) {
+        logger?.info(`${logPrefix}: No bot processes to monitor`);
+        return;
+    }
+
+    try {
+        const platform = os.platform();
+        let runningPids = new Set();
+
+        if (platform === 'win32') {
+            // En Windows, usar tasklist para obtener PIDs
+            const { exec } = require('child_process');
+            const tasklistPromise = new Promise((resolve, reject) => {
+                exec('tasklist /FI "IMAGENAME eq chrome.exe" /FO CSV /NH', (error, stdout, stderr) => {
+                    if (error) {
+                        reject(error);
+                        return;
+                    }
+                    const lines = stdout.trim().split('\n');
+                    lines.forEach(line => {
+                        const match = line.match(/"([^"]+)","([^"]+)","([^"]+)","([^"]+)"/);
+                        if (match) {
+                            const pid = parseInt(match[2], 10);
+                            if (pid) runningPids.add(pid);
+                        }
+                    });
+                    resolve();
+                });
+            });
+            await tasklistPromise;
+        } else {
+            // En Unix-like, usar ps
+            const { exec } = require('child_process');
+            const psPromise = new Promise((resolve, reject) => {
+                exec('ps -o pid= -p ' + Array.from(botProcessPids).join(','), (error, stdout, stderr) => {
+                    if (error) {
+                        reject(error);
+                        return;
+                    }
+                    const pids = stdout.trim().split('\n').map(pid => parseInt(pid.trim(), 10)).filter(pid => pid);
+                    pids.forEach(pid => runningPids.add(pid));
+                    resolve();
+                });
+            });
+            await psPromise;
+        }
+
+        // Verificar si algún PID del bot ha desaparecido
+        for (const pid of botProcessPids) {
+            if (!runningPids.has(pid)) {
+                logger?.warn(`${logPrefix}: Bot process PID ${pid} not found - browser may have been closed`);
+                console.log(`Process Monitor: Bot process PID ${pid} not found - browser may have been closed`);
+
+                // Enviar evento específico al main process
+                if (typeof process.send === 'function') {
+                    process.send({ type: 'browser-closed', pid: pid, reason: 'process_not_found' });
+                }
+
+                // Desregistrar el PID
+                unregisterBotProcess(pid);
+            }
+        }
+
+        logger?.info(`${logPrefix}: Monitoring complete - ${botProcessPids.size} bot processes tracked`);
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error during process monitoring: ${error.message}`);
+        console.error(`Process Monitor: Error during process monitoring: ${error.message}`);
+    }
+}
+
+// Función para iniciar monitoreo de procesos
+function startProcessMonitoring() {
+    if (processMonitoringInterval) {
+        clearInterval(processMonitoringInterval);
+    }
+
+    logger?.info(`Process Monitor: Starting process monitoring every 10 seconds`);
+    console.log(`Process Monitor: Starting process monitoring every 10 seconds`);
+
+    processMonitoringInterval = setInterval(monitorBotProcesses, 10000); // Cada 10 segundos
+}
+
+// Función para detener monitoreo de procesos
+function stopProcessMonitoring() {
+    if (processMonitoringInterval) {
+        clearInterval(processMonitoringInterval);
+        processMonitoringInterval = null;
+        logger?.info(`Process Monitor: Stopped process monitoring`);
+        console.log(`Process Monitor: Stopped process monitoring`);
+    }
+}
 
 // Variables para controlar reintentos de reconexión
 let isReconnecting = false;
@@ -837,7 +1025,9 @@ async function createWhatsAppClient(dataPath, executablePath, configPath = null)
 const initialCampaignState = {
     id: null, // Unique ID for the current campaign
     status: 'inactive', // inactive, running, pausing, paused, stopping, stopped, finished
-    config: null,
+    config: {
+        countryCode: '' // Default to empty string for country code
+    },
     contacts: [],
     totalContacts: 0,
     sentCount: 0,
@@ -908,6 +1098,17 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
         return;
     }
 
+    // If client exists but is not ready (e.g., after LOGOUT), force recreation
+    if (client && !client.info) {
+        logger?.warn(`${logPrefix}: Client exists but is not ready (likely after LOGOUT), forcing recreation.`);
+        console.log("Client exists but is not ready, forcing recreation.");
+        try {
+            await destroyClientInstance();
+        } catch (error) {
+            logger?.error(`${logPrefix}: Error destroying existing client: ${error.message}`);
+        }
+    }
+
     logger?.info(`${logPrefix}: Starting new client initialization process...`);
     console.log("Starting new client initialization process...");
     isClientInitializing = true;
@@ -921,8 +1122,21 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
     if (!client) {
         logger?.info(`${logPrefix}: Client instance not found. Creating new client...`);
         console.log("Client instance not found. Creating new client...");
-        
+
         try {
+            // MEJORA: Detección temprana de sesiones inválidas
+            logger?.info(`${logPrefix}: Checking session validity before full initialization...`);
+            const sessionStatus = await checkSessionValidity(dataPath);
+
+            if (sessionStatus.isValid) {
+                logger?.info(`${logPrefix}: Valid session detected, proceeding with normal initialization`);
+                console.log("whatsapp-logic: Valid session detected, proceeding with normal initialization");
+            } else {
+                logger?.warn(`${logPrefix}: Invalid or missing session detected: ${sessionStatus.reason}`);
+                console.log(`whatsapp-logic: Invalid session detected: ${sessionStatus.reason}`);
+                console.log("whatsapp-logic: Will generate QR code immediately after client creation");
+            }
+
             // Use robust Chrome detection with enhanced validation
             logger?.info(`${logPrefix}: Starting Chrome executable detection...`);
 
@@ -962,6 +1176,13 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
             client = await createWhatsAppClient(dataPath, executablePath);
             logger?.info(`${logPrefix}: WhatsApp client instance created successfully`);
 
+            // MEJORA: Si la sesión es inválida, esperar al QR real del cliente
+            if (!sessionStatus.isValid) {
+                logger?.info(`${logPrefix}: Invalid session detected, waiting for real QR from client`);
+                console.log("whatsapp-logic: Invalid session detected, waiting for real QR from client");
+                // No enviar QR temporal, esperar al evento 'qr' real del cliente
+            }
+
             // Set up event listeners with enhanced logging
             client.on('qr', qr => {
                 logger?.info(`${logPrefix}: QR code received, length: ${qr.length}`);
@@ -987,7 +1208,7 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                 console.log('🔄 whatsapp-logic: Setting isClientInitializing to false');
                 isClientInitializing = false;
                 console.log('📊 whatsapp-logic: isClientInitializing is now:', isClientInitializing);
-                
+
                 // CORRECCIÓN: Verificación adicional para logCallback antes de usar
                 if (typeof logCallback === 'function') {
                     logCallback('whatsapp-logic: WhatsApp client is ready and authenticated');
@@ -1006,6 +1227,52 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                     resolveClientReady = null;
                     rejectClientReady = null;
                 }
+
+                // Register browser process PID for safe monitoring
+                try {
+                    // Check if client is in headless mode
+                    const isHeadless = client.options?.puppeteer?.headless;
+
+                    if (isHeadless) {
+                        logger?.info(`${logPrefix}: Client is in headless mode - skipping browser process monitoring`);
+                        console.log(`Process Monitor: Client is in headless mode - skipping browser process monitoring`);
+                        logger?.info(`${logPrefix}: Headless mode uses internal browser management, process monitoring not needed`);
+                        console.log(`Process Monitor: Headless mode uses internal browser management, process monitoring not needed`);
+                    } else {
+                        // Non-headless mode - attempt to register PID
+                        logger?.info(`${logPrefix}: Client is in non-headless mode - attempting browser process monitoring`);
+                        console.log(`Process Monitor: Client is in non-headless mode - attempting browser process monitoring`);
+
+                        setTimeout(async () => {
+                            try {
+                                if (!client) {
+                                    logger?.warn(`${logPrefix}: Client is null, cannot register PID`);
+                                    console.log(`Process Monitor: Client is null, cannot register PID`);
+                                    return;
+                                }
+
+                                if (client.puppeteerPage && client.puppeteerPage.browser) {
+                                    const browser = client.puppeteerPage.browser();
+                                    const pid = browser.process().pid;
+                                    currentBrowserPid = pid;
+                                    registerBotProcess(pid);
+                                    startProcessMonitoring();
+                                    logger?.info(`${logPrefix}: Registered browser process PID: ${pid}`);
+                                    console.log(`Process Monitor: Registered browser process PID: ${pid}`);
+                                } else {
+                                    logger?.warn(`${logPrefix}: puppeteerPage or browser not available in non-headless mode`);
+                                    console.log(`Process Monitor: puppeteerPage or browser not available in non-headless mode`);
+                                }
+                            } catch (error) {
+                                logger?.error(`${logPrefix}: Error registering browser process: ${error.message}`);
+                                console.error(`Process Monitor: Error registering browser process: ${error.message}`);
+                            }
+                        }, 2000); // Wait 2 seconds for browser to be fully initialized
+                    }
+                } catch (error) {
+                    logger?.error(`${logPrefix}: Error setting up PID registration: ${error.message}`);
+                    console.error(`Process Monitor: Error setting up PID registration: ${error.message}`);
+                }
             });
             
             client.on('auth_failure', msg => {
@@ -1021,9 +1288,16 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
             
             client.on('disconnected', async (reason) => {
                 const disconnectTime = new Date().toISOString();
+                const clientInfoBefore = JSON.stringify(client.info || {});
+                const sessionAge = client.info?.me ? new Date().toISOString() : 'unknown';
+
                 logger?.warn(`${logPrefix}: Client disconnected at ${disconnectTime}: ${reason}`);
-                logger?.warn(`${logPrefix}: Client info before disconnect: ${JSON.stringify(client.info || {})}`);
+                logger?.warn(`${logPrefix}: Client info before disconnect: ${clientInfoBefore}`);
+                logger?.warn(`${logPrefix}: Session age estimate: ${sessionAge}`);
+                logger?.warn(`${logPrefix}: Initialization state: isClientInitializing=${isClientInitializing}`);
                 console.log('Client was disconnected:', reason);
+                console.log('Client info before disconnect:', clientInfoBefore);
+                console.log('Session age estimate:', sessionAge);
 
                 // CORRECCIÓN: Verificación adicional para logCallback antes de usar
                 if (typeof logCallback === 'function') {
@@ -1036,12 +1310,22 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                 const isLogout = reason === 'LOGOUT' || reason === 'logout' ||
                                 reason === 'user_initiated' || reason === 'manual_logout';
 
+                // MEJORA: Mejorar logs de debug para diferenciar tipos de LOGOUT
                 if (isLogout) {
-                    logger?.info(`${logPrefix}: LOGOUT detectado - No se intentará reconexión automática`);
-                    console.log('whatsapp-logic: LOGOUT detectado - No se intentará reconexión automática');
+                    // Analizar si es LOGOUT por cierre manual o por sesión inválida
+                    const isManualLogout = client.info && client.info.me;
+                    const logoutType = isManualLogout ? 'manual_logout' : 'invalid_session_logout';
+
+                    logger?.info(`${logPrefix}: LOGOUT detectado - Tipo: ${logoutType}, Razón: ${reason}`);
+                    logger?.info(`${logPrefix}: LOGOUT análisis - Client info presente: ${!!client.info}, Session válida: ${!!client.info?.me}`);
+                    console.log(`whatsapp-logic: LOGOUT detectado - Tipo: ${logoutType}, Razón: ${reason}`);
+                    console.log(`whatsapp-logic: LOGOUT análisis - Client info presente: ${!!client.info}, Session válida: ${!!client.info?.me}`);
 
                     if (typeof logCallback === 'function') {
-                        logCallback('whatsapp-logic: Sesión cerrada manualmente - requiere nuevo QR');
+                        const logoutMessage = isManualLogout
+                            ? 'whatsapp-logic: Sesión cerrada manualmente por usuario - requiere nuevo QR'
+                            : 'whatsapp-logic: Sesión inválida detectada - requiere nuevo QR';
+                        logCallback(logoutMessage);
                     }
 
                     // Limpiar estado de reconexión
@@ -1051,12 +1335,28 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                         clearTimeout(reconnectTimeout);
                         reconnectTimeout = null;
                     }
+
+                    // CORRECCIÓN: Para LOGOUT, destruir el cliente para resetear el estado correctamente
+                    logger?.info(`${logPrefix}: LOGOUT (${logoutType}) detectado - Destruyendo cliente para resetear estado`);
+                    try {
+                        await destroyClientInstance();
+                        logger?.info(`${logPrefix}: Cliente destruido exitosamente después de LOGOUT (${logoutType})`);
+                    } catch (destroyError) {
+                        logger?.error(`${logPrefix}: Error destruyendo cliente en LOGOUT (${logoutType}): ${destroyError.message}`);
+                    }
                 } else {
                     logger?.warn(`${logPrefix}: Desconexión técnica detectada: ${reason} - Intentando reconexión...`);
+                    logger?.warn(`${logPrefix}: Desconexión técnica - Estado del cliente: Info=${!!client.info}, Inicializando=${isClientInitializing}`);
                     console.log(`whatsapp-logic: Desconexión técnica detectada: ${reason} - Intentando reconexión...`);
+                    console.log(`whatsapp-logic: Desconexión técnica - Estado del cliente: Info=${!!client.info}, Inicializando=${isClientInitializing}`);
 
                     if (typeof logCallback === 'function') {
                         logCallback(`whatsapp-logic: Desconexión técnica: ${reason} - Intentando reconexión automática`);
+                    }
+
+                    // Enviar evento específico para desconexión técnica
+                    if (typeof process.send === 'function') {
+                        process.send({ type: 'browser-closed', reason: reason, timestamp: new Date().toISOString() });
                     }
                 }
 
@@ -1081,6 +1381,13 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                     resolveClientReady = null;
                     rejectClientReady = null;
                 }
+
+                // Safe process cleanup on disconnect
+                if (currentBrowserPid) {
+                    unregisterBotProcess(currentBrowserPid);
+                    currentBrowserPid = null;
+                }
+                stopProcessMonitoring();
             });
             
         } catch (e) {
@@ -1826,7 +2133,10 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
             const numero = numeroKey ? dato[numeroKey] : undefined;
 
             if (numero && numero.toString().length > 6) {
-                const chatId = (`+${numero}@c.us`).substring(1);
+                // Apply country code if selected
+                const { countryCode } = campaignState.config;
+                const fullNumber = countryCode && countryCode.trim() !== '' ? `${countryCode}${numero}` : numero;
+                const chatId = `+${fullNumber}@c.us`;
 
                 try {
                     const sendStartTime = Date.now();
@@ -2208,7 +2518,7 @@ async function destroyClientInstance() {
         }
 
         try {
-            const destroyTimeoutMs = 60 * 1000; // 60 seconds for general destroy
+        const destroyTimeoutMs = 120 * 1000; // 120 seconds for general destroy (increased from 60s)
             logger?.info(`${logPrefix}: Starting client.destroy() with ${destroyTimeoutMs/1000}s timeout`);
 
             // CORRECCIÓN: Usar operaciones seguras para destrucción del cliente
@@ -2415,7 +2725,14 @@ module.exports = {
     // SOLUCIÓN EBUSY: Exportar nuevas funciones para manejo específico de errores EBUSY
     safeLogoutWithEBUSYHandling, // Wrapper específico para logout con manejo de EBUSY
     forceReleaseChromeProcesses, // Función para liberar procesos Chrome/Puppeteer
-    aggressiveSessionCleanup // Función de limpieza alternativa agresiva para casos extremos
+    aggressiveSessionCleanup, // Función de limpieza alternativa agresiva para casos extremos
+    // Process monitoring functions for safe browser detection
+    registerBotProcess,
+    unregisterBotProcess,
+    clearBotProcesses,
+    monitorBotProcesses,
+    startProcessMonitoring,
+    stopProcessMonitoring
 };
 
 /**

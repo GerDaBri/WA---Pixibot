@@ -191,9 +191,33 @@ if (!gotTheLock) {
         createWindow();
 
         // --- Auto Updater Setup ---
-        // Configure auto-updater
+        // Configure auto-updater with migration support
         autoUpdater.autoDownload = true;
         autoUpdater.autoInstallOnAppQuit = true;
+
+        // Migration logic for Pixibot
+        if (app.isPackaged && app.getName() === 'Pixibot') {
+            const currentVersion = app.getVersion();
+            const migrationVersion = '1.0.4';
+
+            // Check if we need to migrate from old repository
+            if (currentVersion < migrationVersion) {
+                logToRenderer('info', '🔄 Migration: Updating repository configuration for Pixibot');
+
+                // Set feed URL to new repository for migration
+                autoUpdater.setFeedURL({
+                    provider: 'github',
+                    owner: 'GerDaBri',
+                    repo: 'Pixibot-Releases',
+                    releaseType: 'release'
+                });
+
+                logToRenderer('info', '✅ Migration: Now using Pixibot-Releases repository');
+            } else {
+                // Use standard configuration for new installations
+                logToRenderer('info', '✅ Using standard Pixibot-Releases repository');
+            }
+        }
         
         autoUpdater.on('checking-for-update', () => {
             logToRenderer('info', '🔍 Checking for updates...');
@@ -256,15 +280,20 @@ if (!gotTheLock) {
             SESSION_PATH,
             (qr) => {
                 logToRenderer('info', 'main.js: QR code data received from whatsapp-logic (app.whenReady).');
-                qrcode.toDataURL(qr, (err, url) => {
-                    if (err) {
-                        logToRenderer('error', 'main.js: Error generating QR code data URL (initialize-client):', err);
-                        if (mainWindow) mainWindow.webContents.send('qrcode', ''); // Send empty string on error
-                        return;
-                    }
-                    logToRenderer('info', 'main.js: QR code data URL generated (app.whenReady). Sending to renderer.');
-                    if (mainWindow) mainWindow.webContents.send('qrcode', url);
-                });
+                // Solo procesar QR si es válido (no 'SESSION_INVALID')
+                if (qr && qr !== 'SESSION_INVALID') {
+                    qrcode.toDataURL(qr, (err, url) => {
+                        if (err) {
+                            logToRenderer('error', 'main.js: Error generating QR code data URL (initialize-client):', err);
+                            if (mainWindow) mainWindow.webContents.send('qrcode', ''); // Send empty string on error
+                            return;
+                        }
+                        logToRenderer('info', 'main.js: QR code data URL generated (app.whenReady). Sending to renderer.');
+                        if (mainWindow) mainWindow.webContents.send('qrcode', url);
+                    });
+                } else {
+                    logToRenderer('info', 'main.js: Ignoring invalid QR code (SESSION_INVALID) from whatsapp-logic.');
+                }
             },
             () => {
                 logToRenderer('info', 'main.js: Client ready event - sending ready to renderer (app startup)');
@@ -332,6 +361,16 @@ if (!gotTheLock) {
         }
     });
 
+    // --- Process Message Listener for Bot Events ---
+    process.on('message', (message) => {
+        if (message.type === 'browser-closed') {
+            logToRenderer('info', 'main.js: Browser closed event received from whatsapp-logic:', message);
+            if (mainWindow) {
+                mainWindow.webContents.send('browser-closed', message);
+            }
+        }
+    });
+
     // --- IPC Handlers ---
 
     // Query the true status from whatsapp-logic
@@ -373,15 +412,20 @@ if (!gotTheLock) {
             SESSION_PATH,
             (qr) => {
                 logToRenderer('info', 'main.js: QR code data received from whatsapp-logic (initialize-client IPC).');
-                qrcode.toDataURL(qr, (err, url) => {
-                    if (err) {
-                        logToRenderer('error', 'main.js: Error generating QR code data URL (initialize-client IPC):', err);
-                        if (mainWindow) mainWindow.webContents.send('qrcode', ''); // Send empty string on error
-                        return;
-                    }
-                    logToRenderer('info', 'main.js: QR code data URL generated (initialize-client IPC). Sending to renderer.');
-                    if (mainWindow) mainWindow.webContents.send('qrcode', url);
-                });
+                // Solo procesar QR si es válido (no 'SESSION_INVALID')
+                if (qr && qr !== 'SESSION_INVALID') {
+                    qrcode.toDataURL(qr, (err, url) => {
+                        if (err) {
+                            logToRenderer('error', 'main.js: Error generating QR code data URL (initialize-client IPC):', err);
+                            if (mainWindow) mainWindow.webContents.send('qrcode', ''); // Send empty string on error
+                            return;
+                        }
+                        logToRenderer('info', 'main.js: QR code data URL generated (initialize-client IPC). Sending to renderer.');
+                        if (mainWindow) mainWindow.webContents.send('qrcode', url);
+                    });
+                } else {
+                    logToRenderer('info', 'main.js: Ignoring invalid QR code (SESSION_INVALID) from whatsapp-logic (initialize-client IPC).');
+                }
             },
             () => {
                 logToRenderer('info', 'main.js: Client ready event - sending ready to renderer (initialize-client IPC)');
@@ -464,14 +508,19 @@ if (!gotTheLock) {
             await whatsappLogic.softLogoutAndReinitialize(
                 SESSION_PATH,
                 (qr) => {
-                    qrcode.toDataURL(qr, (err, url) => {
-                        if (err) {
-                            logToRenderer('Error generating QR code data URL on logout:', err);
-                            if (mainWindow) mainWindow.webContents.send('qrcode', '');
-                            return;
-                        }
-                        if (mainWindow) mainWindow.webContents.send('qrcode', url);
-                    });
+                    // Solo procesar QR si es válido (no 'SESSION_INVALID')
+                    if (qr && qr !== 'SESSION_INVALID') {
+                        qrcode.toDataURL(qr, (err, url) => {
+                            if (err) {
+                                logToRenderer('Error generating QR code data URL on logout:', err);
+                                if (mainWindow) mainWindow.webContents.send('qrcode', '');
+                                return;
+                            }
+                            if (mainWindow) mainWindow.webContents.send('qrcode', url);
+                        });
+                    } else {
+                        logToRenderer('info', 'main.js: Ignoring invalid QR code (SESSION_INVALID) from whatsapp-logic (logout).');
+                    }
                 },
                 () => {
                     logToRenderer('info', 'main.js: Client ready event - sending ready to renderer (logout)');

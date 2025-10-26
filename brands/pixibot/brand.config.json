@@ -9,7 +9,7 @@
   "license": "ISC",
   "github": {
     "owner": "GerDaBri",
-    "repo": "WA---Pixibot",
+    "repo": "Pixibot-Releases",
     "releaseType": "release"
   },
   "colors": {
@@ -22,5 +22,12 @@
     "logo": "logos/logo-principal.png"
   },
   "title": "Pixibot - WhatsAppBot",
-  "theme": "default"
+  "theme": "default",
+  "migration": {
+    "enabled": true,
+    "currentVersion": "1.0.3",
+    "migrationVersion": "1.0.4",
+    "oldRepository": "WA---Pixibot",
+    "newRepository": "Pixibot-Releases"
+  }
 }
