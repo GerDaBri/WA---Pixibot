@@ -12,6 +12,7 @@
     "release": "node scripts/release.js",
     "release:simple": "node scripts/simple-release.js",
     "migrate:pixibot": "node scripts/migrate-pixibot.js",
+    "post-migrate:pixibot": "node scripts/post-migration-setup.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

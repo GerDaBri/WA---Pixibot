@@ -9,7 +9,7 @@
   "license": "ISC",
   "github": {
     "owner": "GerDaBri",
-    "repo": "Pixibot-Releases",
+    "repo": "WA---Pixibot",
     "releaseType": "release"
   },
   "colors": {
@@ -28,6 +28,8 @@
     "currentVersion": "1.0.3",
     "migrationVersion": "1.0.4",
     "oldRepository": "WA---Pixibot",
-    "newRepository": "Pixibot-Releases"
+    "newRepository": "Pixibot-Releases",
+    "migrationStrategy": "publish_migration_in_old_repo",
+    "futureVersionsRepo": "Pixibot-Releases"
   }
 }

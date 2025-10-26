@@ -44,22 +44,24 @@ npm run migrate:pixibot
 #### 2. Proceso automático:
 - ✅ **Versión de migración**: `1.0.4`
 - ✅ **Configuración aplicada**: Pixibot branding
-- ✅ **Repositorio configurado**: `Pixibot-Releases`
+- ✅ **Repositorio de migración**: `WA---Pixibot` (repo actual para que apps existentes la encuentren)
+- ✅ **Repositorio futuro**: `Pixibot-Releases` (para versiones > 1.0.4)
 - ✅ **Lógica de migración**: Incluida en el código
 - ✅ **Tag creado**: `pixibot-v1.0.4`
 - ✅ **GitHub Actions**: Build automático activado
-- ✅ **Publicación**: En `Pixibot-Releases`
+- ✅ **Publicación inicial**: En `WA---Pixibot` (para migración)
+- ✅ **Publicación futura**: En `Pixibot-Releases` (después de migración)
 
 ### Fase 3: Comportamiento de las Aplicaciones
 
 #### Aplicaciones Existentes (< 1.0.4)
 1. **Detectan actualización** en repositorio actual (`WA---Pixibot`)
-2. **Descargan versión 1.0.4** (versión de migración)
+2. **Descargan versión 1.0.4** desde `WA---Pixibot` (versión de migración)
 3. **Se actualizan automáticamente**
-4. **Nueva configuración**: Buscan futuras actualizaciones en `Pixibot-Releases`
+4. **Cambio automático**: Después de instalar 1.0.4, buscan futuras actualizaciones en `Pixibot-Releases`
 
 #### Nuevas Instalaciones (≥ 1.0.4)
-1. **Instalación desde** `Pixibot-Releases`
+1. **Instalación desde** `WA---Pixibot` (versión 1.0.4) o `Pixibot-Releases` (versiones futuras)
 2. **Configuración inicial**: `Pixibot-Releases` como repositorio
 3. **Actualizaciones futuras**: Desde `Pixibot-Releases`
 
@@ -106,7 +108,8 @@ if (app.isPackaged && app.getName() === 'Pixibot') {
     "currentVersion": "1.0.3",
     "migrationVersion": "1.0.4",
     "oldRepository": "WA---Pixibot",
-    "newRepository": "Pixibot-Releases"
+    "newRepository": "Pixibot-Releases",
+    "migrationStrategy": "publish_migration_in_old_repo"
   }
 }
 ```
@@ -123,8 +126,9 @@ if (app.isPackaged && app.getName() === 'Pixibot') {
 ### Durante la Migración
 - [ ] **Ejecutar migración**: `npm run migrate:pixibot`
 - [ ] **Verificar build**: GitHub Actions ejecutándose correctamente
-- [ ] **Verificar publicación**: Release creado en `Pixibot-Releases`
+- [ ] **Verificar publicación**: Release creado en `WA---Pixibot` (repo actual para migración)
 - [ ] **Verificar instalador**: Nombre correcto "Pixibot Setup 1.0.4.exe"
+- [ ] **Verificar migración automática**: Apps existentes detectan y descargan 1.0.4
 
 ### Post-Migración
 - [ ] **Testing de instalación**: Nueva instalación funciona correctamente
@@ -182,16 +186,20 @@ node scripts/release-brand.js
 # Seleccionar: pixibot
 # Versión: 1.0.5 (con correcciones)
 
-# 2. Monitorear adopción de versión correctiva
-# 3. Verificar que problemas se resuelvan
+# 2. Si es necesario revertir configuración de post-migración
+# Revertir brands/pixibot/brand.config.json a usar WA---Pixibot
+
+# 3. Monitorear adopción de versión correctiva
+# 4. Verificar que problemas se resuelvan
 ```
 
 ## 🎯 Próximos Pasos
 
-1. **Ejecutar migración**: `npm run migrate:pixibot`
-2. **Verificar funcionamiento**: Confirmar que todo funciona correctamente
-3. **Monitorear adopción**: Seguimiento de usuarios que reciben la actualización
-4. **Releases futuros**: Todas las nuevas versiones se publican en `Pixibot-Releases`
+1. **Ejecutar migración**: `npm run migrate:pixibot` (publica 1.0.4 en `WA---Pixibot`)
+2. **Verificar funcionamiento**: Confirmar que apps existentes detectan 1.0.4
+3. **Monitorear adopción**: Seguimiento de usuarios que reciben la actualización 1.0.4
+4. **Post-migración**: `npm run post-migrate:pixibot` (actualiza config para versiones futuras)
+5. **Releases futuros**: Versiones > 1.0.4 se publican automáticamente en `Pixibot-Releases`
 
 ## 📞 Soporte
 

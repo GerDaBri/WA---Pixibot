@@ -90,9 +90,10 @@ try {
   execSync(`git push origin ${migrationTag}`, { stdio: 'inherit' });
 
   console.log(`\n✅ Migration release ${migrationTag} created successfully!`);
-  console.log(`📦 GitHub Actions will build and publish to Pixibot-Releases`);
+  console.log(`📦 GitHub Actions will build and publish to WA---Pixibot (migration repository)`);
   console.log(`🔗 Monitor progress: https://github.com/GerDaBri/WA---Pixibot/actions`);
-  console.log(`📋 Release page: https://github.com/GerDaBri/Pixibot-Releases/releases`);
+  console.log(`📋 Release page: https://github.com/GerDaBri/WA---Pixibot/releases`);
+  console.log(`📋 Future releases will be published to: https://github.com/GerDaBri/Pixibot-Releases/releases`);
 
   console.log('\n🎯 Migration Summary:');
   console.log('===================');
