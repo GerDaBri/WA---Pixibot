@@ -72,7 +72,7 @@ try {
   }
 
   // 7. Create and push migration tag
-  const migrationTag = `pixibot-v${migrationVersion}`;
+  const migrationTag = `pixibotm-v${migrationVersion}`;
   console.log(`\n🏷️  Creating migration tag: ${migrationTag}`);
 
   // Delete existing tag if exists
