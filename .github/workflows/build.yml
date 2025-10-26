@@ -65,7 +65,7 @@ jobs:
           
           # Apply brand-specific configuration to package.json
           $packageJson.name = $brandConfig.name
-          $packageJson.version = $brandConfig.version
+          $packageJson.version = "${{ steps.extract_brand.outputs.version }}"
           $packageJson.description = $brandConfig.description
           $packageJson.author = $brandConfig.author
           $packageJson.license = $brandConfig.license

@@ -25,7 +25,7 @@
   "theme": "default",
   "migration": {
     "enabled": true,
-    "currentVersion": "1.0.3",
+    "currentVersion": "1.0.4",
     "migrationVersion": "1.0.4",
     "oldRepository": "WA---Pixibot",
     "newRepository": "Pixibot-Releases",

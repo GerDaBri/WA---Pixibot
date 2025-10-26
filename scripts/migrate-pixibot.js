@@ -11,21 +11,30 @@ try {
   const migrationVersion = '1.0.4';
   console.log(`📦 Creating migration version: ${migrationVersion}`);
 
-  // 2. Update package.json for migration
+  // 2. Verify package.json has correct version
   const packagePath = path.join(__dirname, '..', 'package.json');
   const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
 
-  // Backup current version
+  // Check current version
   const currentVersion = packageJson.version;
   console.log(`📋 Current version: ${currentVersion}`);
 
-  // Update to migration version
-  packageJson.version = migrationVersion;
-  fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2));
-  console.log(`✅ Updated package.json to version ${migrationVersion}`);
+  if (currentVersion !== migrationVersion) {
+    console.log(`🔄 Updating package.json to version ${migrationVersion}`);
+    packageJson.version = migrationVersion;
+    fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2));
+  } else {
+    console.log(`✅ Package.json already at version ${migrationVersion}`);
+  }
 
-  // 3. Apply Pixibot brand configuration
-  console.log('🏷️  Applying Pixibot brand configuration...');
+
+  // 3. Verify brand configuration
+  console.log('🏷️  Verifying Pixibot brand configuration...');
+  const brandConfigPath = path.join(__dirname, '..', 'brands', 'pixibot', 'brand.config.json');
+  if (fs.existsSync(brandConfigPath)) {
+    const brandConfig = JSON.parse(fs.readFileSync(brandConfigPath, 'utf8'));
+    console.log(`✅ Brand config set to version ${brandConfig.version} (migration: ${migrationVersion})`);
+  }
 
   // Copy Pixibot assets
   const pixibotAssetsDir = path.join(__dirname, '..', 'brands', 'pixibot', 'assets');
@@ -72,7 +81,7 @@ try {
   }
 
   // 7. Create and push migration tag
-  const migrationTag = `pixibotm-v${migrationVersion}`;
+  const migrationTag = `pixibot-v${migrationVersion}`;
   console.log(`\n🏷️  Creating migration tag: ${migrationTag}`);
 
   // Delete existing tag if exists
