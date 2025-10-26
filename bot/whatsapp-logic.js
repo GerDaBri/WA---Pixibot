@@ -2136,7 +2136,7 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                 // Apply country code if selected
                 const { countryCode } = campaignState.config;
                 const fullNumber = countryCode && countryCode.trim() !== '' ? `${countryCode}${numero}` : numero;
-                const chatId = `+${fullNumber}@c.us`;
+                const chatId = (`+${fullNumber}@c.us`).substring(1);
 
                 try {
                     const sendStartTime = Date.now();
