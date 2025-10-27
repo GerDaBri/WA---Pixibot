@@ -2,14 +2,14 @@
   "name": "pixibot",
   "displayName": "Pixibot",
   "description": "A WhatsApp bot application.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "productName": "Pixibot",
   "appId": "com.yourcompany.whatsappbot",
   "author": "",
   "license": "ISC",
   "github": {
     "owner": "GerDaBri",
-    "repo": "WA---Pixibot",
+    "repo": "Pixibot-Releases",
     "releaseType": "release"
   },
   "colors": {
@@ -25,11 +25,14 @@
   "theme": "default",
   "migration": {
     "enabled": true,
-    "currentVersion": "1.0.4",
+    "currentVersion": "1.0.5",
     "migrationVersion": "1.0.4",
     "oldRepository": "WA---Pixibot",
     "newRepository": "Pixibot-Releases",
     "migrationStrategy": "publish_migration_in_old_repo",
-    "futureVersionsRepo": "Pixibot-Releases"
+    "futureVersionsRepo": "Pixibot-Releases",
+    "completed": true,
+    "completedDate": "2025-10-27T07:36:27.879Z",
+    "nextVersionRepo": "Pixibot-Releases"
   }
 }
