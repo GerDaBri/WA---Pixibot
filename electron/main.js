@@ -201,7 +201,7 @@ if (!gotTheLock) {
             const migrationVersion = '1.0.4';
 
             // Check if we need to migrate from old repository
-            if (currentVersion < migrationVersion) {
+            if (currentVersion <= migrationVersion) {
                 logToRenderer('info', '🔄 Migration: Updating repository configuration for Pixibot');
 
                 // Set feed URL to new repository for migration
