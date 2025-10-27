@@ -38,6 +38,12 @@ try {
   execSync('git commit -m "feat(migration): update Pixibot config for future releases in Pixibot-Releases"', { stdio: 'inherit' });
   execSync('git push origin main', { stdio: 'inherit' });
 
+  // Create and push tag for version 1.0.5
+  console.log('\n🏷️ Creating and pushing tag for pixibot-v1.0.5...');
+  execSync(`git tag pixibot-v${brandConfig.version}`, { stdio: 'inherit' });
+  execSync(`git push origin pixibot-v${brandConfig.version}`, { stdio: 'inherit' });
+  console.log(`✅ Tag pixibot-v${brandConfig.version} created and pushed successfully!`);
+
   console.log('\n✅ Post-migration setup completed successfully!');
   console.log('\n📋 Summary:');
   console.log('===========');
