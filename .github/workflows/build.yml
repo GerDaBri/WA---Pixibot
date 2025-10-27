@@ -147,7 +147,7 @@ jobs:
           # Pixibot uses the default github_token (publishes to WA---Pixibot for migration)
           # All other brands use BRAND_RELEASE_TOKEN for cross-repo publishing
           if ($brandName -eq "pixibot") {
-            "use_custom_token=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "use_custom_token=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             Write-Host "✓ Using default GITHUB_TOKEN for Pixibot (migration to Pixibot releases)"
           } else {
             "use_custom_token=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
