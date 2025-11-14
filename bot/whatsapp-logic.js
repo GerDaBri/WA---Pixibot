@@ -311,12 +311,6 @@ async function forceReleaseChromeProcesses() {
         logger?.info(`${logPrefix}: Liberación de procesos del bot completada`);
         console.log(`${logPrefix}: Bot process release completed`);
 
-    } catch (error) {
-        logger?.error(`${logPrefix}: Error durante liberación de procesos: ${error.message}`);
-        console.error(`${logPrefix}: Error during process release: ${error.message}`);
-    }
-}
-
         // Esperar adicional para que se liberen los handles de archivos
         logger?.info(`${logPrefix}: Esperando 3 segundos para liberación completa de handles`);
         await delay(3000);
