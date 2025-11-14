@@ -249,54 +249,73 @@ async function safeLogoutWithEBUSYHandling(clientInstance, maxRetries = 3) {
 // Función para liberar procesos de Chrome/Puppeteer antes del logout
 async function forceReleaseChromeProcesses() {
     const logPrefix = 'Chrome Process Release';
-    logger?.info(`${logPrefix}: Iniciando liberación forzada de procesos Chrome/Puppeteer`);
+    logger?.info(`${logPrefix}: Iniciando liberación forzada de procesos Chrome/Puppeteer del bot`);
 
     try {
-        // En Windows, usar taskkill para terminar procesos relacionados con Chrome
-        if (os.platform() === 'win32') {
-            logger?.info(`${logPrefix}: Plataforma Windows detectada, ejecutando taskkill`);
+        // CRÍTICO: Solo matar los PIDs registrados del bot, NO todos los Chrome del sistema
+        if (botProcessPids.size === 0 && !currentBrowserPid) {
+            logger?.info(`${logPrefix}: No hay PIDs registrados del bot para terminar`);
+            console.log(`${logPrefix}: No bot PIDs to terminate`);
+            return;
+        }
 
-            const { exec } = require('child_process');
+        // Construir lista de PIDs a terminar
+        const pidsToKill = new Set(botProcessPids);
+        if (currentBrowserPid) {
+            pidsToKill.add(currentBrowserPid);
+        }
 
-            // Lista de procesos relacionados con Chrome que pueden mantener archivos bloqueados
-            const chromeProcesses = [
-                'chrome.exe',
-                'chromedriver.exe',
-                'puppeteer.exe'
-            ];
+        logger?.info(`${logPrefix}: Terminando ${pidsToKill.size} proceso(s) del bot: ${Array.from(pidsToKill).join(', ')}`);
+        console.log(`${logPrefix}: Terminating ${pidsToKill.size} bot process(es): ${Array.from(pidsToKill).join(', ')}`);
 
-            for (const processName of chromeProcesses) {
-                await new Promise((resolve) => {
-                    exec(`taskkill /f /im "${processName}" 2>nul`, (error, stdout, stderr) => {
-                        if (error) {
-                            logger?.info(`${logPrefix}: No se encontraron procesos ${processName} o ya fueron terminados`);
-                        } else {
-                            logger?.info(`${logPrefix}: Procesos ${processName} terminados exitosamente`);
-                        }
-                        resolve();
-                    });
-                });
+        const { exec } = require('child_process');
+        const platform = os.platform();
 
-                // Pequeña pausa entre procesos
-                await delay(500);
-            }
-        } else {
-            // En sistemas Unix-like, usar pkill
-            logger?.info(`${logPrefix}: Plataforma Unix detectada, ejecutando pkill`);
-
-            const { exec } = require('child_process');
-
+        for (const pid of pidsToKill) {
             await new Promise((resolve) => {
-                exec('pkill -f "chrome|chromium|puppeteer" 2>/dev/null || true', (error, stdout, stderr) => {
+                let command;
+
+                if (platform === 'win32') {
+                    // Windows: Matar por PID específico solamente
+                    command = `taskkill /F /PID ${pid} 2>nul`;
+                } else {
+                    // Unix-like: Matar por PID específico solamente
+                    command = `kill -9 ${pid} 2>/dev/null || true`;
+                }
+
+                logger?.info(`${logPrefix}: Ejecutando: ${command}`);
+
+                exec(command, (error, stdout, stderr) => {
                     if (error) {
-                        logger?.info(`${logPrefix}: No se encontraron procesos Chrome o ya fueron terminados`);
+                        logger?.warn(`${logPrefix}: Proceso PID ${pid} no encontrado o ya terminado`);
+                        console.log(`${logPrefix}: Process PID ${pid} not found or already terminated`);
                     } else {
-                        logger?.info(`${logPrefix}: Procesos Chrome terminados exitosamente`);
+                        logger?.info(`${logPrefix}: Proceso PID ${pid} terminado exitosamente`);
+                        console.log(`${logPrefix}: Process PID ${pid} terminated successfully`);
                     }
+
+                    // Desregistrar el PID después de terminarlo
+                    unregisterBotProcess(pid);
+
                     resolve();
                 });
             });
+
+            // Pequeña pausa entre procesos
+            await delay(300);
         }
+
+        // Limpiar referencia al PID actual del browser
+        currentBrowserPid = null;
+
+        logger?.info(`${logPrefix}: Liberación de procesos del bot completada`);
+        console.log(`${logPrefix}: Bot process release completed`);
+
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error durante liberación de procesos: ${error.message}`);
+        console.error(`${logPrefix}: Error during process release: ${error.message}`);
+    }
+}
 
         // Esperar adicional para que se liberen los handles de archivos
         logger?.info(`${logPrefix}: Esperando 3 segundos para liberación completa de handles`);
@@ -1075,9 +1094,16 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
     if (isClientInitializing) {
         logger?.info(`${logPrefix}: Client initialization already in progress. Waiting for completion.`);
         console.log("Client initialization already in progress. Waiting for it to complete.");
+
+        // CRÍTICO: Manejar caso donde clientReadyPromise puede ser null (race condition)
         if (clientReadyPromise) {
             try {
-                await clientReadyPromise;
+                // Agregar timeout de 120 segundos para evitar deadlock
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Client initialization wait timeout after 120 seconds')), 120000)
+                );
+
+                await Promise.race([clientReadyPromise, timeoutPromise]);
                 logger?.info(`${logPrefix}: Existing client initialization completed successfully.`);
                 console.log("Existing client initialization completed successfully.");
                 if (onClientReady) onClientReady();
@@ -1087,6 +1113,34 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                 if (onAuthFailure) onAuthFailure(e.message);
             }
             return;
+        } else {
+            // CRÍTICO: Si promise es null pero flag es true, puede ser race condition
+            // Esperar un momento y reintentar
+            logger?.warn(`${logPrefix}: Initialization in progress but promise is null - possible race condition`);
+            console.log("Initialization in progress but promise is null - waiting and retrying");
+
+            await delay(1000); // Esperar 1 segundo
+
+            // Reintentar: si aún está inicializando, esperar la promise
+            if (isClientInitializing && clientReadyPromise) {
+                try {
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Client initialization wait timeout after 120 seconds')), 120000)
+                    );
+
+                    await Promise.race([clientReadyPromise, timeoutPromise]);
+                    logger?.info(`${logPrefix}: Client initialization completed after retry.`);
+                    if (onClientReady) onClientReady();
+                    return;
+                } catch (e) {
+                    logger?.error(`${logPrefix}: Client initialization failed after retry: ${e.message}`);
+                    if (onAuthFailure) onAuthFailure(e.message);
+                    return;
+                }
+            }
+
+            // Si después de esperar ya no está inicializando, continuar con nueva inicialización
+            logger?.info(`${logPrefix}: Initialization lock released, proceeding with new initialization`);
         }
     }
 
@@ -1111,13 +1165,16 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
 
     logger?.info(`${logPrefix}: Starting new client initialization process...`);
     console.log("Starting new client initialization process...");
-    isClientInitializing = true;
 
-    // Create a new promise for this initialization attempt
+    // CRÍTICO: Crear la promise ANTES de setear el flag para evitar race condition
+    // Si se setea el flag primero, otra llamada puede entrar y encontrar flag=true pero promise=null
     clientReadyPromise = new Promise((resolve, reject) => {
         resolveClientReady = resolve;
         rejectClientReady = reject;
     });
+
+    // Ahora sí, marcar que la inicialización está en progreso
+    isClientInitializing = true;
 
     if (!client) {
         logger?.info(`${logPrefix}: Client instance not found. Creating new client...`);
@@ -1228,21 +1285,22 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                     rejectClientReady = null;
                 }
 
-                // Register browser process PID for safe monitoring
+                // Register browser process PID for safe monitoring (headless AND non-headless)
                 try {
-                    // Check if client is in headless mode
                     const isHeadless = client.options?.puppeteer?.headless;
+                    logger?.info(`${logPrefix}: Attempting browser process monitoring (headless: ${isHeadless})`);
+                    console.log(`Process Monitor: Attempting browser process monitoring (headless: ${isHeadless})`);
 
-                    if (isHeadless) {
-                        logger?.info(`${logPrefix}: Client is in headless mode - skipping browser process monitoring`);
-                        console.log(`Process Monitor: Client is in headless mode - skipping browser process monitoring`);
-                        logger?.info(`${logPrefix}: Headless mode uses internal browser management, process monitoring not needed`);
-                        console.log(`Process Monitor: Headless mode uses internal browser management, process monitoring not needed`);
+                    // Si ya capturamos el PID antes, solo iniciar el monitoreo
+                    if (currentBrowserPid) {
+                        logger?.info(`${logPrefix}: Browser PID already captured: ${currentBrowserPid}`);
+                        console.log(`Process Monitor: Browser PID already captured: ${currentBrowserPid}`);
+                        if (!isHeadless) {
+                            startProcessMonitoring();
+                            logger?.info(`${logPrefix}: Process monitoring started for non-headless mode`);
+                        }
                     } else {
-                        // Non-headless mode - attempt to register PID
-                        logger?.info(`${logPrefix}: Client is in non-headless mode - attempting browser process monitoring`);
-                        console.log(`Process Monitor: Client is in non-headless mode - attempting browser process monitoring`);
-
+                        // Si no se capturó antes, intentar capturar ahora en el evento ready
                         setTimeout(async () => {
                             try {
                                 if (!client) {
@@ -1251,17 +1309,64 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
                                     return;
                                 }
 
+                                // Intentar múltiples métodos para obtener el PID
+                                let pid = null;
+
+                                // Método 1: puppeteerPage.browser
                                 if (client.puppeteerPage && client.puppeteerPage.browser) {
-                                    const browser = client.puppeteerPage.browser();
-                                    const pid = browser.process().pid;
+                                    try {
+                                        const browser = client.puppeteerPage.browser();
+                                        const browserProcess = browser.process();
+                                        if (browserProcess && browserProcess.pid) {
+                                            pid = browserProcess.pid;
+                                            logger?.info(`${logPrefix}: PID obtained via puppeteerPage: ${pid}`);
+                                        }
+                                    } catch (e) {
+                                        logger?.warn(`${logPrefix}: Method 1 failed: ${e.message}`);
+                                    }
+                                }
+
+                                // Método 2: pupBrowser
+                                if (!pid && client.pupBrowser && typeof client.pupBrowser.process === 'function') {
+                                    try {
+                                        const browserProcess = client.pupBrowser.process();
+                                        if (browserProcess && browserProcess.pid) {
+                                            pid = browserProcess.pid;
+                                            logger?.info(`${logPrefix}: PID obtained via pupBrowser: ${pid}`);
+                                        }
+                                    } catch (e) {
+                                        logger?.warn(`${logPrefix}: Method 2 failed: ${e.message}`);
+                                    }
+                                }
+
+                                // Método 3: pupPage.browser
+                                if (!pid && client.pupPage && client.pupPage.browser) {
+                                    try {
+                                        const browser = client.pupPage.browser();
+                                        const browserProcess = browser.process();
+                                        if (browserProcess && browserProcess.pid) {
+                                            pid = browserProcess.pid;
+                                            logger?.info(`${logPrefix}: PID obtained via pupPage: ${pid}`);
+                                        }
+                                    } catch (e) {
+                                        logger?.warn(`${logPrefix}: Method 3 failed: ${e.message}`);
+                                    }
+                                }
+
+                                if (pid) {
                                     currentBrowserPid = pid;
                                     registerBotProcess(pid);
-                                    startProcessMonitoring();
-                                    logger?.info(`${logPrefix}: Registered browser process PID: ${pid}`);
-                                    console.log(`Process Monitor: Registered browser process PID: ${pid}`);
+                                    logger?.info(`${logPrefix}: Registered browser process PID: ${pid} (headless: ${isHeadless})`);
+                                    console.log(`Process Monitor: Registered browser process PID: ${pid} (headless: ${isHeadless})`);
+
+                                    // Solo iniciar monitoreo activo en modo no-headless
+                                    if (!isHeadless) {
+                                        startProcessMonitoring();
+                                        logger?.info(`${logPrefix}: Process monitoring started`);
+                                    }
                                 } else {
-                                    logger?.warn(`${logPrefix}: puppeteerPage or browser not available in non-headless mode`);
-                                    console.log(`Process Monitor: puppeteerPage or browser not available in non-headless mode`);
+                                    logger?.warn(`${logPrefix}: Could not obtain browser PID through any method`);
+                                    console.log(`Process Monitor: Could not obtain browser PID through any method`);
                                 }
                             } catch (error) {
                                 logger?.error(`${logPrefix}: Error registering browser process: ${error.message}`);
@@ -1430,6 +1535,53 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
 
         logger?.info(`${logPrefix}: Client initialized successfully in ${Date.now() - initStartTime}ms`);
         console.log(`Client initialized successfully in ${Date.now() - initStartTime}ms`);
+
+        // CRÍTICO: Capturar y registrar PID del browser inmediatamente después de inicialización
+        try {
+            // Intentar múltiples veces ya que el browser puede tardar en estar disponible
+            let pidCaptured = false;
+            for (let attempt = 1; attempt <= 5 && !pidCaptured; attempt++) {
+                try {
+                    if (client.pupBrowser && typeof client.pupBrowser.process === 'function') {
+                        const browserProcess = client.pupBrowser.process();
+                        if (browserProcess && browserProcess.pid) {
+                            currentBrowserPid = browserProcess.pid;
+                            registerBotProcess(currentBrowserPid);
+                            logger?.info(`${logPrefix}: Browser PID captured immediately: ${currentBrowserPid}`);
+                            console.log(`${logPrefix}: Browser PID captured immediately: ${currentBrowserPid}`);
+                            pidCaptured = true;
+                        }
+                    }
+
+                    // Método alternativo para whatsapp-web.js
+                    if (!pidCaptured && client.pupPage && client.pupPage.browser) {
+                        const browser = client.pupPage.browser();
+                        const browserProcess = browser.process();
+                        if (browserProcess && browserProcess.pid) {
+                            currentBrowserPid = browserProcess.pid;
+                            registerBotProcess(currentBrowserPid);
+                            logger?.info(`${logPrefix}: Browser PID captured via pupPage: ${currentBrowserPid}`);
+                            console.log(`${logPrefix}: Browser PID captured via pupPage: ${currentBrowserPid}`);
+                            pidCaptured = true;
+                        }
+                    }
+                } catch (pidError) {
+                    logger?.warn(`${logPrefix}: Attempt ${attempt}/5 to capture browser PID failed: ${pidError.message}`);
+                }
+
+                if (!pidCaptured && attempt < 5) {
+                    await delay(500); // Esperar 500ms antes del siguiente intento
+                }
+            }
+
+            if (!pidCaptured) {
+                logger?.warn(`${logPrefix}: Could not capture browser PID after 5 attempts - will retry on 'ready' event`);
+                console.log(`${logPrefix}: Could not capture browser PID immediately - will retry on 'ready' event`);
+            }
+        } catch (pidCaptureError) {
+            logger?.error(`${logPrefix}: Error capturing browser PID: ${pidCaptureError.message}`);
+            console.error(`${logPrefix}: Error capturing browser PID: ${pidCaptureError.message}`);
+        }
     } catch (error) {
         const initFailTime = Date.now();
         logger?.error(`${logPrefix}: Error during client.initialize() after ${initFailTime - Date.now()}ms: ${error.message}`);
@@ -1547,6 +1699,22 @@ function resumeSending(campaignId) {
         // This handles resuming from a "cold start" where the app was restarted.
         // The sending loop is not running, so we need to start it.
         console.log("whatsapp-logic: No active sending loop found. Starting a new one from the persisted state.");
+
+        // CRÍTICO: Validar que los callbacks estén presentes antes de reanudar
+        // Después de un restart, los callbacks deberían haber sido rehidratados por restartSendingFromState()
+        if (!campaignState.progressCallback) {
+            console.warn("whatsapp-logic: WARNING - progressCallback is null during cold start resume!");
+            logger?.warn("Resume Sending: progressCallback is null - this may cause UI update failures");
+        }
+        if (!campaignState.logCallback) {
+            console.warn("whatsapp-logic: WARNING - logCallback is null during cold start resume!");
+            logger?.warn("Resume Sending: logCallback is null - this may cause log message failures");
+        }
+        if (!campaignState.countdownCallback) {
+            console.warn("whatsapp-logic: WARNING - countdownCallback is null during cold start resume!");
+            logger?.warn("Resume Sending: countdownCallback is null - countdown updates will not work");
+        }
+
         // The startSending function will handle setting the status to 'running'
         startSending(
             campaignState.config,
@@ -2031,7 +2199,19 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
     else {
         campaignState.id = campaignId;
         campaignState.status = 'running'; // Set to running to start the loop
-        campaignState.countdownCallback = countdownCallback; // Store countdownCallback
+
+        // CRÍTICO: Actualizar TODOS los callbacks si se pasan como parámetros
+        // Esto es necesario para manejar el caso donde se reanuda después de restart
+        if (callbackProgress) {
+            campaignState.progressCallback = callbackProgress;
+        }
+        if (logCallback) {
+            campaignState.logCallback = logCallback;
+        }
+        if (countdownCallback) {
+            campaignState.countdownCallback = countdownCallback;
+        }
+
         setCountdownState('sending');
     }
     
