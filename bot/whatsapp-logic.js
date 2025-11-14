@@ -2102,28 +2102,61 @@ async function sendCampaignStartNotification(campaignConfig, contacts, logCallba
 }
 
 /**
- * Sends a message with retries.
+ * Sends a message with retry logic and exponential backoff.
+ * MEJORA: Implementación simplificada sin doble timeout wrapping.
+ * Timeout total máximo: ~90s (30s + 45s + 60s para 3 intentos) vs 180s anterior.
  * @param {string} chatId - The chat ID to send the message to.
  * @param {string} message - The message text.
  * @param {MessageMedia} media - Optional media to send.
  * @param {number} maxRetries - Maximum number of retries.
- * @param {number} timeout - Timeout for each send attempt in milliseconds.
+ * @param {number} initialTimeout - Initial timeout for first attempt in milliseconds.
  */
-async function sendMessageWithRetries(chatId, message, media = null, maxRetries = 3, timeout = 60000) {
-    // CORRECCIÓN: Usar función segura para operaciones de envío de mensajes
-    return await safeRetryOperation(async () => {
-        const sendPromise = media ? client.sendMessage(chatId, media, { caption: message }) : client.sendMessage(chatId, message);
+async function sendMessageWithRetries(chatId, message, media = null, maxRetries = 3, initialTimeout = 30000) {
+    const logPrefix = `Send Message (${chatId.substring(0, 15)}...)`;
+    let lastError;
 
-        // CORRECCIÓN: Usar operaciones seguras para evitar promesas colgando
-        await safeAsyncOperation(async () => {
-            return await Promise.race([
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            // Calcular timeout con exponential backoff: 30s, 45s, 60s
+            const timeout = Math.floor(initialTimeout * (1 + (attempt - 1) * 0.5));
+
+            logger?.info(`${logPrefix}: Intento ${attempt}/${maxRetries} con timeout de ${timeout}ms`);
+
+            const sendPromise = media
+                ? client.sendMessage(chatId, media, { caption: message })
+                : client.sendMessage(chatId, message);
+
+            // Promise.race con timeout - una sola capa de timeout
+            const result = await Promise.race([
                 sendPromise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Message send timeout')), timeout))
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`Message send timeout after ${timeout}ms`)), timeout)
+                )
             ]);
-        }, timeout, `send-message-${chatId}`);
 
-        return true; // Message sent successfully
-    }, maxRetries, 5000, `send-message-${chatId}`);
+            if (attempt > 1) {
+                logger?.info(`${logPrefix}: Mensaje enviado exitosamente después de ${attempt} intentos`);
+            }
+
+            return true; // Message sent successfully
+
+        } catch (error) {
+            lastError = error;
+            logger?.warn(`${logPrefix}: Intento ${attempt}/${maxRetries} falló: ${error.message}`);
+
+            // Si no es el último intento, esperar con exponential backoff
+            if (attempt < maxRetries) {
+                const delayTime = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s
+                logger?.info(`${logPrefix}: Esperando ${delayTime}ms antes del siguiente intento`);
+                await delay(delayTime);
+            }
+        }
+    }
+
+    // Todos los intentos fallaron
+    const errorMsg = `Failed to send message after ${maxRetries} attempts: ${lastError.message}`;
+    logger?.error(`${logPrefix}: ${errorMsg}`);
+    throw new Error(errorMsg);
 }
 
 /**
@@ -2697,8 +2730,56 @@ async function destroyClientInstance() {
             }
         }
 
+        // MEJORA: Cerrar browser ANTES de destruir cliente para evitar procesos zombie
         try {
-        const destroyTimeoutMs = 120 * 1000; // 120 seconds for general destroy (increased from 60s)
+            logger?.info(`${logPrefix}: Attempting to close browser before client destruction...`);
+
+            // Intentar cerrar browser por múltiples métodos
+            let browserClosed = false;
+
+            // Método 1: puppeteerPage.browser
+            if (client.puppeteerPage && client.puppeteerPage.browser) {
+                try {
+                    const browser = client.puppeteerPage.browser();
+                    if (browser && typeof browser.close === 'function') {
+                        await Promise.race([
+                            browser.close(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Browser close timeout')), 10000))
+                        ]);
+                        logger?.info(`${logPrefix}: Browser closed via puppeteerPage`);
+                        browserClosed = true;
+                    }
+                } catch (e) {
+                    logger?.warn(`${logPrefix}: Failed to close browser via puppeteerPage: ${e.message}`);
+                }
+            }
+
+            // Método 2: pupBrowser
+            if (!browserClosed && client.pupBrowser && typeof client.pupBrowser.close === 'function') {
+                try {
+                    await Promise.race([
+                        client.pupBrowser.close(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Browser close timeout')), 10000))
+                    ]);
+                    logger?.info(`${logPrefix}: Browser closed via pupBrowser`);
+                    browserClosed = true;
+                } catch (e) {
+                    logger?.warn(`${logPrefix}: Failed to close browser via pupBrowser: ${e.message}`);
+                }
+            }
+
+            if (!browserClosed) {
+                logger?.warn(`${logPrefix}: Could not close browser through any method, proceeding with client destroy`);
+            }
+
+            // Pequeña pausa para que el browser termine de cerrar
+            await delay(1000);
+        } catch (browserCloseError) {
+            logger?.warn(`${logPrefix}: Error during browser close: ${browserCloseError.message}`);
+        }
+
+        try {
+        const destroyTimeoutMs = 60 * 1000; // 60 seconds (reducido de 120s ya que browser ya está cerrado)
             logger?.info(`${logPrefix}: Starting client.destroy() with ${destroyTimeoutMs/1000}s timeout`);
 
             // CORRECCIÓN: Usar operaciones seguras para destrucción del cliente
