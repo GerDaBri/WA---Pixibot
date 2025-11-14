@@ -355,6 +355,31 @@ if (!gotTheLock) {
         }
     });
 
+    // MEJORA: Cleanup de procesos Puppeteer antes de quit
+    app.on('before-quit', async (event) => {
+        logToRenderer('info', 'main.js: App is quitting, cleaning up browser processes...');
+
+        try {
+            // Prevenir quit inmediato para dar tiempo al cleanup
+            event.preventDefault();
+
+            // Cleanup de procesos del bot
+            await whatsappLogic.forceReleaseChromeProcesses();
+
+            // Destruir cliente de WhatsApp
+            await whatsappLogic.destroyClientInstance();
+
+            logToRenderer('info', 'main.js: Browser cleanup completed, quitting app...');
+
+            // Permitir quit después del cleanup
+            app.exit(0);
+        } catch (error) {
+            logToRenderer('error', 'main.js: Error during browser cleanup:', error);
+            // Quit anyway even if cleanup fails
+            app.exit(1);
+        }
+    });
+
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
             createWindow();
