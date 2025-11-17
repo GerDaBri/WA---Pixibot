@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { FluentProvider, webLightTheme, Spinner, Text, Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogActions, Button } from '@fluentui/react-components';
-import logo from '../assets/logos/logo-principal.png';
 import UpdateNotification from './components/UpdateNotification';
-import SessionStatusIndicator from './components/SessionStatusIndicator';
+import Sidebar from './components/Sidebar';
 
 // Lazy load step components
 const Step0_Login = lazy(() => import('./components/Step0_Login'));
@@ -28,11 +27,16 @@ function App() {
     const [updateInfo, setUpdateInfo] = useState(null);
     const [downloadProgress, setDownloadProgress] = useState(null);
     const [updateError, setUpdateError] = useState(null);
-    
+
+    // Closing overlay states
+    const [isClosing, setIsClosing] = useState(false);
+    const [closingStatus, setClosingStatus] = useState('Cerrando aplicación...');
+
     const listenersSetupRef = useRef(false);
     const clientInitializedForStep3Ref = useRef(false); // Track if client was initialized for current Step 3 session
     const clientStatusPollingRef = useRef(null); // Reference for polling interval
     const updateListenersRef = useRef(null); // Reference for update listeners cleanup
+    const closingListenersRef = useRef(null); // Reference for closing listeners cleanup
 
     useEffect(() => {
         const setupListeners = () => {
@@ -109,7 +113,7 @@ function App() {
                 setUpdateStatus('available');
                 setUpdateInfo(info);
                 setUpdateError(null);
-                
+
                 // Iniciar descarga automáticamente
                 setTimeout(() => {
                     console.log('App.js: Auto-starting download for available update');
@@ -147,6 +151,27 @@ function App() {
             };
         };
 
+        const setupClosingListeners = () => {
+            if (!window.electronAPI?.onShowClosingOverlay || !window.electronAPI?.onUpdateClosingStatus) return;
+
+            const unsubscribeShow = window.electronAPI.onShowClosingOverlay(() => {
+                console.log('App.js: Showing closing overlay');
+                setIsClosing(true);
+                setClosingStatus('Cerrando aplicación...');
+            });
+
+            const unsubscribeStatus = window.electronAPI.onUpdateClosingStatus((status) => {
+                console.log('App.js: Closing status update:', status);
+                setClosingStatus(status);
+            });
+
+            // Store cleanup functions
+            closingListenersRef.current = () => {
+                unsubscribeShow();
+                unsubscribeStatus();
+            };
+        };
+
         const loadInitialData = async () => {
             // A short delay to ensure the preload script has run
             setTimeout(async () => {
@@ -155,6 +180,7 @@ function App() {
                     if (!listenersSetupRef.current) {
                         setupListeners();
                         setupUpdateListeners(); // Setup update listeners
+                        setupClosingListeners(); // Setup closing overlay listeners
                         listenersSetupRef.current = true;
                     }
 
@@ -640,33 +666,49 @@ function App() {
                     onRetry={handleRetryUpdate}
                     onClose={handleCloseNotification}
                 />
-                
-                <header className="app-header">
-                    <img src={logo} className="app-logo" alt="logo" />
-                    
-                    {licenseStatus && currentStep > 0 && (
-                        <Dialog>
-                            <DialogTrigger disableButtonEnhancement>
-                                <Text
-                                    style={{
-                                        position: 'absolute',
-                                        right: '20px',
-                                        top: '20px',
-                                        fontSize: '14px',
-                                        cursor: 'pointer',
-                                        color: licenseStatus === 'valid' ? '#107c10' : '#d13438',
-                                        textDecoration: 'underline'
-                                    }}
-                                >
-                                    {getLicenseStatusText()}
-                                </Text>
-                            </DialogTrigger>
-                            <DialogSurface>
-                                <DialogTitle>Información de Licencia</DialogTitle>
-                                <DialogBody>
-                                    {userData && (
-                                        <div style={{ marginBottom: '16px' }}>
-                                            <h4 style={{ margin: '0 0 8px 0', color: '#323130' }}>Usuario</h4>
+
+                {/* Sidebar - Only show after login */}
+                {currentStep > 0 && (
+                    <Sidebar
+                        currentStep={currentStep}
+                        sessionStatus={sessionStatus}
+                        licenseDetails={licenseDetails}
+                        userData={userData}
+                    />
+                )}
+
+                {/* Main Content Area */}
+                <div className="app-main-content">
+                    <header className="app-header">
+                        <div className="app-header-left">
+                            <h1 className="app-header-title">
+                                {currentStep === 0 && 'Inicio de Sesión'}
+                                {currentStep === 1 && 'Creación de Nueva Campaña'}
+                                {currentStep === 2 && 'Configuración del Mensaje'}
+                                {currentStep === 3 && 'Conexión con WhatsApp'}
+                                {currentStep === 4 && `Campaña: ${campaign?.config?.campaignName || 'En Progreso'}`}
+                            </h1>
+                        </div>
+
+                        {licenseStatus && currentStep > 0 && (
+                            <Dialog>
+                                <DialogTrigger disableButtonEnhancement>
+                                    <Button
+                                        appearance="subtle"
+                                        style={{
+                                            fontSize: '14px',
+                                            color: licenseStatus === 'valid' ? '#107c10' : '#d13438',
+                                        }}
+                                    >
+                                        Ver Licencia
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogSurface>
+                                    <DialogTitle>Información de Licencia</DialogTitle>
+                                    <DialogBody>
+                                        {userData && (
+                                            <div style={{ marginBottom: '16px' }}>
+                                                <h4 style={{ margin: '0 0 8px 0', color: '#323130' }}>Usuario</h4>
                                             <p style={{ margin: '4px 0', fontSize: '14px' }}>
                                                 <strong>Email:</strong> {userData.email}
                                             </p>
@@ -757,16 +799,44 @@ function App() {
                             </DialogSurface>
                         </Dialog>
                     )}
-                </header>
-                <div>
-                    <SessionStatusIndicator sessionStatus={sessionStatus} onReconnect={handleReconnect} onLogout={handleLogout} />
-                    <h1>{currentStep === 1 ? 'Creación de nueva campaña' : currentStep === 0 ? 'Inicio de sesión' : ''}</h1>
-                    {isApiReady ? (
-                        <Suspense fallback={<Spinner label="Cargando..." />}>
-                            {renderStep()}
-                        </Suspense>
-                    ) : <Spinner label="Inicializando..." />}
+                    </header>
+
+                    {/* Content Area */}
+                    <div className="app-content">
+                        {isApiReady ? (
+                            <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><Spinner size="large" label="Cargando..." /></div>}>
+                                {renderStep()}
+                            </Suspense>
+                        ) : (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                                <Spinner size="large" label="Inicializando..." />
+                            </div>
+                        )}
+                    </div>
                 </div>
+
+                {/* Closing Overlay */}
+                {isClosing && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10000,
+                        color: 'white'
+                    }}>
+                        <Spinner size="extra-large" style={{ marginBottom: '20px' }} />
+                        <Text size={500} style={{ color: 'white', marginTop: '16px' }}>
+                            {closingStatus}
+                        </Text>
+                    </div>
+                )}
             </div>
         </FluentProvider>
     );

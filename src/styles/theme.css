@@ -1,25 +1,84 @@
-/* src/styles/theme.css */
+/* src/styles/theme.css - Modern Design System */
 :root {
-  /* Brand Colors */
-  --primary-color: #4CAF50; /* Green, reminiscent of WhatsApp */
+  /* Brand Colors - WhatsApp Inspired */
+  --primary-color: #4CAF50;
   --primary-dark-color: #388E3C;
   --primary-light-color: #C8E6C9;
   --accent-color: #25D366;
+  --primary-gradient: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+
+  /* Sidebar Colors */
+  --sidebar-bg: #2c3e50;
+  --sidebar-text: #ecf0f1;
+  --sidebar-hover: #34495e;
+  --sidebar-active: #4CAF50;
 
   /* Text Colors */
-  --text-color-primary: #212121;
-  --text-color-secondary: #757575;
+  --text-color-primary: #212529;
+  --text-color-secondary: #6c757d;
   --text-color-light: #FFFFFF;
+  --text-color-muted: #adb5bd;
 
   /* Background Colors */
-  --background-color: #F5F5F5;
+  --background-color: #f8f9fa;
+  --background-gradient: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
   --surface-color: #FFFFFF;
+  --card-gradient: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
 
-  /* Fonts */
-  --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  /* State Colors */
+  --color-success: #28a745;
+  --color-warning: #ffc107;
+  --color-error: #dc3545;
+  --color-info: #17a2b8;
 
-  /* Spacing & Borders */
-  --spacing-unit: 8px;
-  --border-radius: 4px;
+  /* Shadows - Elevation System */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.05);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.08), 0 4px 6px rgba(0,0,0,0.05);
+  --shadow-xl: 0 20px 25px rgba(0,0,0,0.10), 0 10px 10px rgba(0,0,0,0.04);
 
+  /* Border Radius - Modern Rounded */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Spacing System - More Generous */
+  --spacing-unit: 12px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 32px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 350ms ease;
+
+  /* Z-Index Layers */
+  --z-base: 1;
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
 }

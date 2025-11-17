@@ -1,53 +1,125 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Input, Label, Spinner, Text, makeStyles } from '@fluentui/react-components';
+import { Button, Input, Label, Spinner, Text, makeStyles, shorthands } from '@fluentui/react-components';
 
 const useStyles = makeStyles({
     container: {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'flex-start',
-        padding: '20px 20px 20px 20px',
-        gap: '20px',
+        justifyContent: 'center',
+        minHeight: '100%',
+        ...shorthands.padding('var(--spacing-2xl)'),
+        position: 'relative',
     },
-    form: {
+    welcomeSection: {
+        textAlign: 'center',
+        marginBottom: 'var(--spacing-2xl)',
+        animation: 'fadeIn 0.6s ease',
+    },
+    welcomeIcon: {
+        fontSize: '80px',
+        marginBottom: 'var(--spacing-lg)',
+        animation: 'float 3s ease-in-out infinite',
+    },
+    welcomeTitle: {
+        fontSize: 'var(--font-size-2xl)',
+        fontWeight: 'var(--font-weight-bold)',
+        color: 'var(--text-color-primary)',
+        marginBottom: 'var(--spacing-sm)',
+        lineHeight: '1.2',
+    },
+    welcomeSubtitle: {
+        fontSize: 'var(--font-size-base)',
+        color: 'var(--text-color-secondary)',
+        fontWeight: 'var(--font-weight-regular)',
+    },
+    formCard: {
         display: 'flex',
         flexDirection: 'column',
-        gap: '16px',
-        width: '320px',
-        backgroundColor: '#ffffff',
-        padding: '24px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        ...shorthands.gap('var(--spacing-lg)'),
+        width: '100%',
+        maxWidth: '420px',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(10px)',
+        ...shorthands.padding('var(--spacing-2xl)'),
+        ...shorthands.borderRadius('var(--radius-xl)'),
+        boxShadow: 'var(--shadow-xl)',
+        ...shorthands.border('1px', 'solid', 'rgba(255, 255, 255, 0.3)'),
+        animation: 'slideUp 0.5s ease',
     },
-    title: {
-        textAlign: 'center',
-        marginBottom: '8px',
-        color: '#323130',
-        fontSize: '24px',
-        fontWeight: '600',
+    inputGroup: {
+        display: 'flex',
+        flexDirection: 'column',
+        ...shorthands.gap('var(--spacing-sm)'),
     },
-    subtitle: {
-        textAlign: 'center',
-        marginBottom: '16px',
-        color: '#605e5c',
-        fontSize: '14px',
+    inputLabel: {
+        fontSize: 'var(--font-size-sm)',
+        fontWeight: 'var(--font-weight-semibold)',
+        color: 'var(--text-color-primary)',
+        display: 'flex',
+        alignItems: 'center',
+        ...shorthands.gap('var(--spacing-xs)'),
+    },
+    inputIcon: {
+        fontSize: 'var(--font-size-base)',
+    },
+    input: {
+        width: '100%',
+        fontSize: 'var(--font-size-base)',
+        ...shorthands.padding('var(--spacing-md)'),
+        ...shorthands.borderRadius('var(--radius-md)'),
+        ...shorthands.border('2px', 'solid', 'rgba(0, 0, 0, 0.1)'),
+        transition: 'all var(--transition-fast)',
+        '&:focus': {
+            ...shorthands.border('2px', 'solid', 'var(--primary-color)'),
+            boxShadow: '0 0 0 4px rgba(76, 175, 80, 0.1)',
+        },
+    },
+    submitButton: {
+        width: '100%',
+        marginTop: 'var(--spacing-md)',
+        ...shorthands.padding('var(--spacing-lg)'),
+        fontSize: 'var(--font-size-base)',
+        fontWeight: 'var(--font-weight-semibold)',
+        background: 'var(--primary-gradient)',
+        ...shorthands.borderRadius('var(--radius-md)'),
+        ...shorthands.border('none'),
+        color: 'white',
+        cursor: 'pointer',
+        transition: 'all var(--transition-base)',
+        boxShadow: 'var(--shadow-md)',
+        '&:hover': {
+            transform: 'translateY(-2px)',
+            boxShadow: 'var(--shadow-lg)',
+        },
+        '&:active': {
+            transform: 'translateY(0)',
+        },
+        '&:disabled': {
+            opacity: 0.6,
+            cursor: 'not-allowed',
+            transform: 'none',
+        },
     },
     error: {
-        color: '#d13438',
-        fontSize: '12px',
+        color: 'var(--color-error)',
+        fontSize: 'var(--font-size-sm)',
         textAlign: 'center',
-        
+        ...shorthands.padding('var(--spacing-md)'),
+        ...shorthands.borderRadius('var(--radius-md)'),
+        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        ...shorthands.border('1px', 'solid', 'rgba(220, 53, 69, 0.2)'),
+        animation: 'shake 0.5s ease',
     },
     success: {
-        color: '#107c10',
-        fontSize: '14px',
+        color: 'var(--color-success)',
+        fontSize: 'var(--font-size-sm)',
         textAlign: 'center',
-        backgroundColor: '#dff6dd',
-        padding: '8px',
-        borderRadius: '4px',
-        border: '1px solid #9fd89f',
-    }
+        ...shorthands.padding('var(--spacing-md)'),
+        ...shorthands.borderRadius('var(--radius-md)'),
+        backgroundColor: 'rgba(40, 167, 69, 0.1)',
+        ...shorthands.border('1px', 'solid', 'rgba(40, 167, 69, 0.2)'),
+    },
 });
 
 function Step0_Login({ onLoginSuccess }) {
@@ -115,14 +187,22 @@ function Step0_Login({ onLoginSuccess }) {
 
     return (
         <div className={styles.container}>
-            <div className={styles.form}>
-                <Text className={styles.subtitle}>Por favor ingresa tus credenciales para acceder a la aplicación.</Text>
+            {/* Welcome Section */}
+            <div className={styles.welcomeSection}>
+                <div className={styles.welcomeIcon}>💬</div>
+                <h1 className={styles.welcomeTitle}>Bienvenido a Pixibot</h1>
+                <p className={styles.welcomeSubtitle}>Plataforma de Mensajería WhatsApp Profesional</p>
+            </div>
 
+            {/* Login Card */}
+            <div className={styles.formCard}>
                 <form onSubmit={handleSubmit}>
-                    <div style={{ marginBottom: '16px' }}>
-                        <Label htmlFor="email" style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
-                            Email
-                        </Label>
+                    {/* Email Input */}
+                    <div className={styles.inputGroup}>
+                        <label htmlFor="email" className={styles.inputLabel}>
+                            <span className={styles.inputIcon}>📧</span>
+                            <span>Correo Electrónico</span>
+                        </label>
                         <Input
                             id="email"
                             type="email"
@@ -130,14 +210,17 @@ function Step0_Login({ onLoginSuccess }) {
                             onChange={(e) => setEmail(e.target.value)}
                             required
                             disabled={loading}
-                            style={{ width: '100%' }}
+                            placeholder="tu@email.com"
+                            className={styles.input}
                         />
                     </div>
 
-                    <div style={{ marginBottom: '16px' }}>
-                        <Label htmlFor="password" style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
-                            Password
-                        </Label>
+                    {/* Password Input */}
+                    <div className={styles.inputGroup}>
+                        <label htmlFor="password" className={styles.inputLabel}>
+                            <span className={styles.inputIcon}>🔒</span>
+                            <span>Contraseña</span>
+                        </label>
                         <Input
                             id="password"
                             type="password"
@@ -145,29 +228,64 @@ function Step0_Login({ onLoginSuccess }) {
                             onChange={(e) => setPassword(e.target.value)}
                             required
                             disabled={loading}
-                            style={{ width: '100%' }}
+                            placeholder="••••••••"
+                            className={styles.input}
                         />
                     </div>
 
-                    {error && <Text className={styles.error}>{error}</Text>}
-                    {message && <Text className={styles.success}>{message}</Text>}
+                    {/* Error/Success Messages */}
+                    {error && <div className={styles.error}>⚠️ {error}</div>}
+                    {message && <div className={styles.success}>✅ {message}</div>}
 
-                    <Button
+                    {/* Submit Button */}
+                    <button
                         type="submit"
                         disabled={loading}
-                        appearance="primary"
-                        style={{
-                            width: '100%',
-                            marginTop: '16px',
-                            padding: '12px',
-                            fontSize: '16px',
-                            fontWeight: '500'
-                        }}
+                        className={styles.submitButton}
                     >
-                        {loading ? <Spinner size="tiny" /> : 'Login'}
-                    </Button>
+                        {loading ? (
+                            <>
+                                <Spinner size="tiny" style={{ marginRight: '8px' }} />
+                                Iniciando sesión...
+                            </>
+                        ) : (
+                            <>
+                                Iniciar Sesión →
+                            </>
+                        )}
+                    </button>
                 </form>
             </div>
+
+            {/* Animations CSS */}
+            <style>{`
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+
+                @keyframes slideUp {
+                    from {
+                        opacity: 0;
+                        transform: translateY(30px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+
+                @keyframes float {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-10px); }
+                }
+
+                @keyframes shake {
+                    0%, 100% { transform: translateX(0); }
+                    25% { transform: translateX(-5px); }
+                    75% { transform: translateX(5px); }
+                }
+            `}</style>
         </div>
     );
 }
