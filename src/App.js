@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { FluentProvider, webLightTheme, Spinner, Text, Dialog, DialogTrigger, DialogSurface, DialogTitle, DialogBody, DialogActions, Button } from '@fluentui/react-components';
-import logo from '../assets/logos/logo-principal.png';
 import UpdateNotification from './components/UpdateNotification';
-import SessionStatusIndicator from './components/SessionStatusIndicator';
+import Sidebar from './components/Sidebar';
 
 // Lazy load step components
 const Step0_Login = lazy(() => import('./components/Step0_Login'));
@@ -667,33 +666,49 @@ function App() {
                     onRetry={handleRetryUpdate}
                     onClose={handleCloseNotification}
                 />
-                
-                <header className="app-header">
-                    <img src={logo} className="app-logo" alt="logo" />
-                    
-                    {licenseStatus && currentStep > 0 && (
-                        <Dialog>
-                            <DialogTrigger disableButtonEnhancement>
-                                <Text
-                                    style={{
-                                        position: 'absolute',
-                                        right: '20px',
-                                        top: '20px',
-                                        fontSize: '14px',
-                                        cursor: 'pointer',
-                                        color: licenseStatus === 'valid' ? '#107c10' : '#d13438',
-                                        textDecoration: 'underline'
-                                    }}
-                                >
-                                    {getLicenseStatusText()}
-                                </Text>
-                            </DialogTrigger>
-                            <DialogSurface>
-                                <DialogTitle>Información de Licencia</DialogTitle>
-                                <DialogBody>
-                                    {userData && (
-                                        <div style={{ marginBottom: '16px' }}>
-                                            <h4 style={{ margin: '0 0 8px 0', color: '#323130' }}>Usuario</h4>
+
+                {/* Sidebar - Only show after login */}
+                {currentStep > 0 && (
+                    <Sidebar
+                        currentStep={currentStep}
+                        sessionStatus={sessionStatus}
+                        licenseDetails={licenseDetails}
+                        userData={userData}
+                    />
+                )}
+
+                {/* Main Content Area */}
+                <div className="app-main-content">
+                    <header className="app-header">
+                        <div className="app-header-left">
+                            <h1 className="app-header-title">
+                                {currentStep === 0 && 'Inicio de Sesión'}
+                                {currentStep === 1 && 'Creación de Nueva Campaña'}
+                                {currentStep === 2 && 'Configuración del Mensaje'}
+                                {currentStep === 3 && 'Conexión con WhatsApp'}
+                                {currentStep === 4 && `Campaña: ${campaign?.config?.campaignName || 'En Progreso'}`}
+                            </h1>
+                        </div>
+
+                        {licenseStatus && currentStep > 0 && (
+                            <Dialog>
+                                <DialogTrigger disableButtonEnhancement>
+                                    <Button
+                                        appearance="subtle"
+                                        style={{
+                                            fontSize: '14px',
+                                            color: licenseStatus === 'valid' ? '#107c10' : '#d13438',
+                                        }}
+                                    >
+                                        Ver Licencia
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogSurface>
+                                    <DialogTitle>Información de Licencia</DialogTitle>
+                                    <DialogBody>
+                                        {userData && (
+                                            <div style={{ marginBottom: '16px' }}>
+                                                <h4 style={{ margin: '0 0 8px 0', color: '#323130' }}>Usuario</h4>
                                             <p style={{ margin: '4px 0', fontSize: '14px' }}>
                                                 <strong>Email:</strong> {userData.email}
                                             </p>
@@ -784,15 +799,20 @@ function App() {
                             </DialogSurface>
                         </Dialog>
                     )}
-                </header>
-                <div>
-                    <SessionStatusIndicator sessionStatus={sessionStatus} onReconnect={handleReconnect} onLogout={handleLogout} />
-                    <h1>{currentStep === 1 ? 'Creación de nueva campaña' : currentStep === 0 ? 'Inicio de sesión' : ''}</h1>
-                    {isApiReady ? (
-                        <Suspense fallback={<Spinner label="Cargando..." />}>
-                            {renderStep()}
-                        </Suspense>
-                    ) : <Spinner label="Inicializando..." />}
+                    </header>
+
+                    {/* Content Area */}
+                    <div className="app-content">
+                        {isApiReady ? (
+                            <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><Spinner size="large" label="Cargando..." /></div>}>
+                                {renderStep()}
+                            </Suspense>
+                        ) : (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                                <Spinner size="large" label="Inicializando..." />
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Closing Overlay */}

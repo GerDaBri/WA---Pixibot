@@ -1,36 +1,82 @@
-/* src/styles/main.css */
+/* src/styles/main.css - Modern Layout */
 @import url('./theme.css');
 @import url('./components.css');
+
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
   font-family: var(--font-family);
-  background-color: var(--background-color);
+  background: var(--background-gradient);
   color: var(--text-color-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
 }
 
 .app-container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: calc(var(--spacing-unit) * 2);
-  background-color: var(--surface-color);
-  border-radius: var(--border-radius);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  margin-top: calc(var(--spacing-unit) * 4);
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.app-main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background-gradient);
 }
 
 .app-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: calc(var(--spacing-unit) * 2);
-    border-bottom: 1px solid #e0e0e0;
-    margin-bottom: calc(var(--spacing-unit) * 3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-lg) var(--spacing-xl);
+  background-color: var(--surface-color);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-sm);
+  z-index: var(--z-sticky);
+  min-height: 70px;
 }
 
-.app-logo {
-    height: 50px;
-    width: auto;
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.app-header-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-color-primary);
+  margin: 0;
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-xl);
+}
+
+/* Scrollbar Styling */
+.app-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.app-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
 }

@@ -178,10 +178,14 @@ if (!gotTheLock) {
     // --- Main Window Creation ---
     function createWindow() {
         mainWindow = new BrowserWindow({
-            width: 800,
-            height: 600,
+            width: 1200,
+            height: 750,
+            minWidth: 1000,
+            minHeight: 650,
+            center: true,
             autoHideMenuBar: true,
             icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
+            backgroundColor: '#f8f9fa',
             webPreferences: {
                 preload: path.join(__dirname, 'preload.js'),
                 nodeIntegration: false,
