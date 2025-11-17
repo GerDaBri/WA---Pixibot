@@ -76,5 +76,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Update control methods
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     downloadUpdate: () => ipcRenderer.invoke('download-update'),
-    installUpdate: () => ipcRenderer.invoke('install-update')
+    installUpdate: () => ipcRenderer.invoke('install-update'),
+
+    // Closing overlay events
+    onShowClosingOverlay: (callback) => {
+        const subscription = (event, ...args) => callback(...args);
+        ipcRenderer.on('show-closing-overlay', subscription);
+        return () => ipcRenderer.removeListener('show-closing-overlay', subscription);
+    },
+    onUpdateClosingStatus: (callback) => {
+        const subscription = (event, ...args) => callback(...args);
+        ipcRenderer.on('update-closing-status', subscription);
+        return () => ipcRenderer.removeListener('update-closing-status', subscription);
+    }
 });

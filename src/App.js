@@ -28,11 +28,16 @@ function App() {
     const [updateInfo, setUpdateInfo] = useState(null);
     const [downloadProgress, setDownloadProgress] = useState(null);
     const [updateError, setUpdateError] = useState(null);
-    
+
+    // Closing overlay states
+    const [isClosing, setIsClosing] = useState(false);
+    const [closingStatus, setClosingStatus] = useState('Cerrando aplicación...');
+
     const listenersSetupRef = useRef(false);
     const clientInitializedForStep3Ref = useRef(false); // Track if client was initialized for current Step 3 session
     const clientStatusPollingRef = useRef(null); // Reference for polling interval
     const updateListenersRef = useRef(null); // Reference for update listeners cleanup
+    const closingListenersRef = useRef(null); // Reference for closing listeners cleanup
 
     useEffect(() => {
         const setupListeners = () => {
@@ -109,7 +114,7 @@ function App() {
                 setUpdateStatus('available');
                 setUpdateInfo(info);
                 setUpdateError(null);
-                
+
                 // Iniciar descarga automáticamente
                 setTimeout(() => {
                     console.log('App.js: Auto-starting download for available update');
@@ -147,6 +152,27 @@ function App() {
             };
         };
 
+        const setupClosingListeners = () => {
+            if (!window.electronAPI?.onShowClosingOverlay || !window.electronAPI?.onUpdateClosingStatus) return;
+
+            const unsubscribeShow = window.electronAPI.onShowClosingOverlay(() => {
+                console.log('App.js: Showing closing overlay');
+                setIsClosing(true);
+                setClosingStatus('Cerrando aplicación...');
+            });
+
+            const unsubscribeStatus = window.electronAPI.onUpdateClosingStatus((status) => {
+                console.log('App.js: Closing status update:', status);
+                setClosingStatus(status);
+            });
+
+            // Store cleanup functions
+            closingListenersRef.current = () => {
+                unsubscribeShow();
+                unsubscribeStatus();
+            };
+        };
+
         const loadInitialData = async () => {
             // A short delay to ensure the preload script has run
             setTimeout(async () => {
@@ -155,6 +181,7 @@ function App() {
                     if (!listenersSetupRef.current) {
                         setupListeners();
                         setupUpdateListeners(); // Setup update listeners
+                        setupClosingListeners(); // Setup closing overlay listeners
                         listenersSetupRef.current = true;
                     }
 
@@ -767,6 +794,29 @@ function App() {
                         </Suspense>
                     ) : <Spinner label="Inicializando..." />}
                 </div>
+
+                {/* Closing Overlay */}
+                {isClosing && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10000,
+                        color: 'white'
+                    }}>
+                        <Spinner size="extra-large" style={{ marginBottom: '20px' }} />
+                        <Text size={500} style={{ color: 'white', marginTop: '16px' }}>
+                            {closingStatus}
+                        </Text>
+                    </div>
+                )}
             </div>
         </FluentProvider>
     );

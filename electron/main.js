@@ -1,5 +1,5 @@
 console.log('Node.js version:', process.versions.node);
-const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, powerSaveBlocker } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { pathToFileURL } = require('url');
 const url = require('url');
@@ -12,6 +12,45 @@ const config = require('./config');
 const whatsappLogic = require('../bot/whatsapp-logic');
 
 let mainWindow;
+
+// --- Power Save Blocker Variables ---
+let powerSaveBlockerId = null;
+let isCampaignRunning = false;
+
+// --- Power Save Blocker Functions ---
+function preventSystemSleep(reason = 'WhatsApp campaign running') {
+    if (powerSaveBlockerId === null) {
+        // 'prevent-app-suspension' prevents system from sleeping
+        powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+        isCampaignRunning = true;
+        logToRenderer('info', `✅ System sleep prevented: ${reason}`);
+        logToRenderer('info', `🔋 Power save blocker ID: ${powerSaveBlockerId}`);
+        console.log(`Power save blocker started: ${powerSaveBlockerId}`);
+    } else {
+        logToRenderer('info', `⚠️ Power save blocker already active (ID: ${powerSaveBlockerId})`);
+    }
+}
+
+function allowSystemSleep(reason = 'Campaign ended') {
+    if (powerSaveBlockerId !== null) {
+        powerSaveBlocker.stop(powerSaveBlockerId);
+        logToRenderer('info', `✅ System sleep allowed again: ${reason}`);
+        logToRenderer('info', `🔋 Power save blocker stopped (ID: ${powerSaveBlockerId})`);
+        console.log(`Power save blocker stopped: ${powerSaveBlockerId}`);
+        powerSaveBlockerId = null;
+        isCampaignRunning = false;
+    }
+}
+
+// Verificar estado del power save blocker
+function isPowerSaveBlockerActive() {
+    if (powerSaveBlockerId !== null) {
+        const isStarted = powerSaveBlocker.isStarted(powerSaveBlockerId);
+        logToRenderer('info', `🔋 Power save blocker status - ID: ${powerSaveBlockerId}, Active: ${isStarted}`);
+        return isStarted;
+    }
+    return false;
+}
 
 // --- License Validation Helper Functions ---
 
@@ -171,6 +210,11 @@ if (!gotTheLock) {
             });
 
             if (response === 0) {
+                // NUEVO: Mostrar overlay de cierre inmediatamente
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('show-closing-overlay');
+                }
+
                 const campaign = whatsappLogic.getCampaignStatus();
                 if (campaign.id && campaign.status !== 'inactive') {
                     // Persist the final state before quitting
@@ -363,13 +407,39 @@ if (!gotTheLock) {
             // Prevenir quit inmediato para dar tiempo al cleanup
             event.preventDefault();
 
+            // NUEVO: Enviar estado de cierre - Paso 1
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('update-closing-status', 'Deteniendo prevención de suspensión...');
+            }
+
+            // NUEVO: Permitir sleep del sistema antes de cerrar
+            allowSystemSleep('App closing');
+
+            // NUEVO: Enviar estado de cierre - Paso 2
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('update-closing-status', 'Cerrando procesos de Chrome...');
+            }
+
             // Cleanup de procesos del bot
             await whatsappLogic.forceReleaseChromeProcesses();
+
+            // NUEVO: Enviar estado de cierre - Paso 3
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('update-closing-status', 'Desconectando cliente de WhatsApp...');
+            }
 
             // Destruir cliente de WhatsApp
             await whatsappLogic.destroyClientInstance();
 
+            // NUEVO: Enviar estado de cierre - Paso 4
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('update-closing-status', 'Finalizando aplicación...');
+            }
+
             logToRenderer('info', 'main.js: Browser cleanup completed, quitting app...');
+
+            // Dar un pequeño delay para que se muestre el último mensaje
+            await new Promise(resolve => setTimeout(resolve, 500));
 
             // Permitir quit después del cleanup
             app.exit(0);
@@ -478,10 +548,18 @@ if (!gotTheLock) {
     ipcMain.handle('start-sending', (event, config) => {
         logToRenderer('info', 'main.js: start-sending IPC called with config:', config);
         try {
+            // NUEVO: Prevenir sleep del sistema durante campaña
+            preventSystemSleep('Campaign started');
+
             whatsappLogic.startSending(config, (progress) => {
                 store.set('campaign', progress);
                 if (mainWindow) {
                     mainWindow.webContents.send('campaign-update', progress);
+                }
+
+                // NUEVO: Verificar si campaña terminó para permitir sleep
+                if (progress.status === 'finished' || progress.status === 'stopped') {
+                    allowSystemSleep(`Campaign ${progress.status}`);
                 }
             }, logToRenderer, 0, null, (countdownData) => {
                 // Send countdown updates to renderer
@@ -492,6 +570,8 @@ if (!gotTheLock) {
             logToRenderer('info', 'main.js: start-sending completed successfully');
         } catch (error) {
             logToRenderer('error', 'main.js: Error in start-sending:', error);
+            // NUEVO: Permitir sleep si hay error
+            allowSystemSleep('Campaign error');
             throw error;
         }
     });
@@ -500,18 +580,24 @@ if (!gotTheLock) {
     ipcMain.handle('pause-sending', (event, campaignId) => {
         logToRenderer(`main.js: pause-sending called for campaign ${campaignId}`);
         whatsappLogic.pauseSending(campaignId);
+        // NUEVO: Permitir sleep cuando campaña está pausada
+        allowSystemSleep('Campaign paused');
     });
 
     // Resume the currently paused campaign
     ipcMain.handle('resume-sending', (event, campaignId) => {
         logToRenderer(`main.js: resume-sending called for campaign ${campaignId}`);
         whatsappLogic.resumeSending(campaignId);
+        // NUEVO: Prevenir sleep cuando campaña se reanuda
+        preventSystemSleep('Campaign resumed');
     });
 
     // Stop the currently active campaign
     ipcMain.handle('stop-sending', (event, campaignId) => {
         logToRenderer(`main.js: stop-sending called for campaign ${campaignId}`);
         whatsappLogic.stopSending(campaignId, 'user_request');
+        // NUEVO: Permitir sleep cuando campaña se detiene
+        allowSystemSleep('Campaign stopped');
     });
 
     // Clear all campaign data
@@ -520,6 +606,8 @@ if (!gotTheLock) {
         whatsappLogic.clearCampaign();
         store.set('campaign', null);
         logToRenderer('info', 'main.js: Persisted campaign store cleared.');
+        // NUEVO: Permitir sleep cuando campaña se limpia
+        allowSystemSleep('Campaign cleared');
         return whatsappLogic.getCampaignStatus();
     });
 
@@ -588,7 +676,26 @@ if (!gotTheLock) {
             // Log which server we're connecting to
             logToRenderer('info', 'main.js: Login attempt using server:', serverUrl, 'Mode:', config.isPackaged ? 'production (packaged)' : 'development (unpacked)');
 
-            const postData = JSON.stringify({ email, password });
+            // NUEVO: Verificar si existe device_id en licencia almacenada
+            let storedDeviceId = null;
+            try {
+                const licenseStore = new Store({ name: 'license-data' });
+                storedDeviceId = licenseStore.get('device_unique_id');
+                if (storedDeviceId) {
+                    logToRenderer('info', 'main.js: Found stored device_id, will include in login request');
+                } else {
+                    logToRenderer('info', 'main.js: No device_id found in stored license');
+                }
+            } catch (error) {
+                logToRenderer('warn', 'main.js: Error checking for stored device_id:', error.message);
+            }
+
+            // NUEVO: Incluir device_id en el POST data si existe
+            const loginPayload = { email, password };
+            if (storedDeviceId) {
+                loginPayload.device_id = storedDeviceId;
+            }
+            const postData = JSON.stringify(loginPayload);
 
             return new Promise((resolve, reject) => {
                 // Choose HTTP or HTTPS based on server URL
@@ -777,15 +884,27 @@ if (!gotTheLock) {
                 const serverUrl = config.serverUrl;
                 const serverRequestStart = Date.now();
 
+                // NUEVO: Obtener device_id de licencia almacenada
+                const storedDeviceId = licenseStore.get('device_unique_id');
+
                 return new Promise((resolve, reject) => {
                     // Choose HTTP or HTTPS based on server URL
                     const client = serverUrl.startsWith('https://') ? https : http;
 
+                    // NUEVO: Incluir device_id en headers si existe
+                    const requestHeaders = {
+                        'Authorization': `Bearer ${token}`
+                    };
+                    if (storedDeviceId) {
+                        requestHeaders['X-Device-ID'] = storedDeviceId;
+                        logToRenderer('info', 'main.js: Including device_id in check_license request');
+                    } else {
+                        logToRenderer('info', 'main.js: No device_id found for check_license request');
+                    }
+
                     const req = client.request(`${serverUrl}/check_license`, {
                         method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${token}`
-                        }
+                        headers: requestHeaders
                     }, (res) => {
                         const serverResponseStart = Date.now();
                         logToRenderer('info', `main.js: Server request initiated, waiting for response (request time: ${serverResponseStart - serverRequestStart}ms)`);
