@@ -17,9 +17,11 @@ const useStyles = makeStyles({
         animation: 'fadeIn 0.6s ease',
     },
     welcomeIcon: {
-        fontSize: '80px',
+        width: '120px',
+        height: '120px',
         marginBottom: 'var(--spacing-lg)',
         animation: 'float 3s ease-in-out infinite',
+        objectFit: 'contain',
     },
     welcomeTitle: {
         fontSize: 'var(--font-size-2xl)',
@@ -189,7 +191,7 @@ function Step0_Login({ onLoginSuccess }) {
         <div className={styles.container}>
             {/* Welcome Section */}
             <div className={styles.welcomeSection}>
-                <div className={styles.welcomeIcon}>💬</div>
+                <img src="../assets/logos/logo-principal.png" alt="Pixibot Logo" className={styles.welcomeIcon} />
                 <h1 className={styles.welcomeTitle}>Bienvenido a Pixibot</h1>
                 <p className={styles.welcomeSubtitle}>Plataforma de Mensajería WhatsApp Profesional</p>
             </div>

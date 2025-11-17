@@ -2423,7 +2423,9 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                 }
 
                 // --- Handle scheduled pause ---
-                if (campaignState.sentCount > 0 && campaignState.sentCount % pausaCada === 0) {
+                // Skip pause if this is the last message
+                const isLastMessage = (i === campaignState.totalContacts - 1);
+                if (campaignState.sentCount > 0 && campaignState.sentCount % pausaCada === 0 && !isLastMessage) {
                     const tiempoPausa = tiempoAleatorio(pausaMinima * 60000, pausaMaxima * 60000);
                     const tiempoFormateado = formatearTiempo(tiempoPausa);
                     const pauseMessage = `- 🔔 PAUSA AUTOMÁTICA: ${tiempoFormateado} | Enviados: ${campaignState.sentCount}`;
@@ -2435,8 +2437,8 @@ async function startSending(config, callbackProgress, logCallback, initialStartI
                         // Set to sending state after pause
                         setCountdownState('sending');
                     }
-                } else {
-                    // Apply send delay only if not doing a long pause
+                } else if (!isLastMessage) {
+                    // Apply send delay only if not doing a long pause and not the last message
                     await controlledDelay(sendDelay * 1000, 'send'); // USE CONTROLLED DELAY with send type
                 }
 
