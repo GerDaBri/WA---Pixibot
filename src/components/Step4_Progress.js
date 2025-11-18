@@ -14,6 +14,7 @@ import {
     shorthands,
     Text,
 } from '@fluentui/react-components';
+import { HourglassHalf20Regular, Settings20Regular, TrendingLines20Regular } from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
     container: {
@@ -404,14 +405,18 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                     </div>
 
                     <div className={styles.metricCard}>
-                        <div className={styles.metricIcon}>⏳</div>
+                        <div className={styles.metricIcon}>
+                            <HourglassHalf20Regular style={{ fontSize: '24px' }} />
+                        </div>
                         <div className={styles.metricLabel}>Restantes</div>
                         <div className={styles.metricValue}>{remaining}</div>
                         <div className={styles.metricSubtext}>pendientes de envío</div>
                     </div>
 
                     <div className={styles.metricCard}>
-                        <div className={styles.metricIcon}>📈</div>
+                        <div className={styles.metricIcon}>
+                            <TrendingLines20Regular style={{ fontSize: '24px' }} />
+                        </div>
                         <div className={styles.metricLabel}>Progreso</div>
                         <div className={styles.metricValue}>{progressPercent}%</div>
                         <div className={styles.metricSubtext}>completado</div>
@@ -485,7 +490,10 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                 >
                     <AccordionItem value="advanced-settings">
                         <AccordionHeader>
-                            <Text size={400} weight="semibold">⚙️ Configuración Avanzada</Text>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                                <Settings20Regular />
+                                <Text size={400} weight="semibold">Configuración Avanzada</Text>
+                            </div>
                         </AccordionHeader>
                         <AccordionPanel>
                             <div className={styles.formGrid}>

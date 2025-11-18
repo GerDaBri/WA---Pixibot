@@ -7,6 +7,15 @@ import {
     makeStyles,
     shorthands,
 } from '@fluentui/react-components';
+import {
+    Folder20Regular,
+    CheckmarkCircle20Filled,
+    DismissCircle20Filled,
+    LockClosed20Regular,
+    Rocket20Regular,
+    Play20Regular,
+    ArrowClockwise20Regular
+} from '@fluentui/react-icons';
 
 // New FilePreview Component
 const FilePreview = ({ filePath }) => {
@@ -58,7 +67,10 @@ const FilePreview = ({ filePath }) => {
         // Generic file preview
         return (
             <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', textAlign: 'center', backgroundColor: 'var(--surface-color)' }}>
-                <Text>📁 Archivo adjunto: {fileName}</Text>
+                <Text>
+                    <Folder20Regular style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                    Archivo adjunto: {fileName}
+                </Text>
                 <Text size="small" style={{ display: 'block', marginTop: '8px', color: 'var(--text-color-secondary)' }}>No hay vista previa disponible para este tipo de archivo.</Text>
                 <a href={src} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '12px', color: 'var(--primary-color)' }}>Descargar {fileName}</a>
             </div>
@@ -416,7 +428,7 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                     {sessionStatus === 'ready' && (
                         <div className={styles.centeredContent}>
                             <div className={`${styles.statusBadge} ${styles.statusSuccess}`}>
-                                <span>✅</span>
+                                <CheckmarkCircle20Filled />
                                 <span>Sesión Activa</span>
                             </div>
                             {phoneNumber && (
@@ -442,7 +454,7 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                     {sessionStatus === 'disconnected' && (
                         <div className={styles.centeredContent}>
                             <div className={`${styles.statusBadge} ${styles.statusError}`}>
-                                <span>❌</span>
+                                <DismissCircle20Filled />
                                 <span>Sesión Desconectada</span>
                             </div>
                             <Text style={{ textAlign: 'center', color: 'var(--text-color-secondary)' }}>
@@ -455,8 +467,9 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                                         console.log("Step3_Send: Reconnect button clicked - calling initializeClient");
                                         electronAPI.initializeClient();
                                     }}
+                                    icon={<ArrowClockwise20Regular />}
                                 >
-                                    🔄 Reconectar
+                                    Reconectar
                                 </Button>
                             )}
                         </div>
@@ -465,7 +478,7 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                     {sessionStatus === 'auth_failure' && (
                         <div className={styles.centeredContent}>
                             <div className={`${styles.statusBadge} ${styles.statusError}`}>
-                                <span>🔒</span>
+                                <LockClosed20Regular />
                                 <span>Error de Autenticación</span>
                             </div>
                             <Text style={{ textAlign: 'center', color: 'var(--text-color-secondary)' }}>
@@ -512,8 +525,9 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                         onClick={handleStartSending}
                         disabled={sessionStatus !== 'ready' || (campaign?.total > 0 && campaign?.sent === campaign?.total)}
                         className={styles.startButton}
+                        icon={campaign?.sent > 0 && campaign?.sent < campaign?.total ? <Play20Regular /> : <Rocket20Regular />}
                     >
-                        {campaign?.sent > 0 && campaign?.sent < campaign?.total ? '▶️ Reanudar Envío' : '🚀 Comenzar Envío'}
+                        {campaign?.sent > 0 && campaign?.sent < campaign?.total ? 'Reanudar Envío' : 'Comenzar Envío'}
                     </Button>
                 </div>
             </div>

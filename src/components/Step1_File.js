@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Button, makeStyles, shorthands } from '@fluentui/react-components';
+import { CheckmarkCircle20Filled, Warning20Filled, Delete20Regular } from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
     container: {
@@ -360,8 +361,9 @@ function Step1_File({ onNext, initialConfig, electronAPI }) {
                                 appearance="subtle"
                                 onClick={handleRemoveFile}
                                 className={styles.removeButton}
+                                icon={<Delete20Regular />}
                             >
-                                🗑️ Eliminar
+                                Eliminar
                             </Button>
                         </div>
 
@@ -371,11 +373,13 @@ function Step1_File({ onNext, initialConfig, electronAPI }) {
                                 <div style={{ marginBottom: 'var(--spacing-lg)' }}>
                                     {fileValidation.hasRequiredFields ? (
                                         <span className={`${styles.validationBadge} ${styles.validationSuccess}`}>
-                                            ✅ Campos requeridos encontrados
+                                            <CheckmarkCircle20Filled style={{ marginRight: '6px' }} />
+                                            Campos requeridos encontrados
                                         </span>
                                     ) : (
                                         <span className={`${styles.validationBadge} ${styles.validationError}`}>
-                                            ⚠️ Faltan campos: {fileValidation.missingFields.join(', ')}
+                                            <Warning20Filled style={{ marginRight: '6px' }} />
+                                            Faltan campos: {fileValidation.missingFields.join(', ')}
                                         </span>
                                     )}
                                 </div>
