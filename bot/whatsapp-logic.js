@@ -2170,12 +2170,15 @@ function restartSendingFromState(persistedCampaign, callbackProgress, logCallbac
     // Robustly set currentIndex from the single source of truth in config, with fallbacks for older state formats.
     campaignState.config.currentIndex = persistedCampaign.config.currentIndex || persistedCampaign.currentIndex || 0;
     campaignState.sentCount = persistedCampaign.sent || 0;
+    campaignState.totalContacts = persistedCampaign.total || 0; // Restore total contacts for UI display
     campaignState.progressCallback = callbackProgress;
     campaignState.logCallback = logCallback; // Store logCallback
     campaignState.countdownCallback = countdownCallback; // Store countdownCallback
 
     // Initialize countdown state for restored campaign
     setCountdownState('idle');
+
+    console.log("whatsapp-logic: Campaign state restored - Total contacts:", campaignState.totalContacts, "Current index:", campaignState.config.currentIndex);
 
     // Immediately notify the UI of the restored state
     notifyProgress();
