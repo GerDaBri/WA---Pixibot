@@ -8,6 +8,7 @@ const BRANDS_DIR = path.join(__dirname, '..', 'brands');
 const SRC_DIR = path.join(__dirname, '..', 'src');
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
 const PACKAGE_JSON = path.join(__dirname, '..', 'package.json');
+const BRAND_CONFIG_JS = path.join(SRC_DIR, 'brandConfig.js');
 
 // Backup files
 let backupFiles = {};
@@ -43,10 +44,34 @@ function loadBrandConfig(brandName) {
     return JSON.parse(fs.readFileSync(configPath, 'utf8'));
 }
 
+function generateBrandConfigJS(brandConfig) {
+    const configContent = `// This file is auto-generated during build by scripts/build-brand.js
+// DO NOT EDIT MANUALLY - changes will be overwritten
+
+export const brandConfig = {
+    name: '${brandConfig.name}',
+    displayName: '${brandConfig.displayName}',
+    productName: '${brandConfig.productName}',
+    title: '${brandConfig.title}',
+    description: '${brandConfig.description}',
+    version: '${brandConfig.version}',
+};
+
+export default brandConfig;
+`;
+
+    fs.writeFileSync(BRAND_CONFIG_JS, configContent, 'utf8');
+    console.log(`✓ Generated brandConfig.js for ${brandConfig.displayName}`);
+}
+
 function applyBrandConfig(brandConfig) {
     // Backup original files
     backupFile(PACKAGE_JSON, 'package.json');
     backupFile(path.join(SRC_DIR, 'index.html'), 'index.html');
+    backupFile(BRAND_CONFIG_JS, 'brandConfig.js');
+
+    // Generate brand-specific configuration file for React components
+    generateBrandConfigJS(brandConfig);
 
     // Read and modify package.json
     const packageJson = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8'));
@@ -155,6 +180,7 @@ function main() {
         console.log('🔄 Restoring original files...');
         restoreFile(PACKAGE_JSON, 'package.json');
         restoreFile(path.join(SRC_DIR, 'index.html'), 'index.html');
+        restoreFile(BRAND_CONFIG_JS, 'brandConfig.js');
         console.log('✓ Original files restored');
     }
 }

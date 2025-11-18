@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text, makeStyles, shorthands } from '@fluentui/react-components';
 import logo from '../../assets/logos/logo-principal.png';
+import brandConfig from '../brandConfig';
 
 const useStyles = makeStyles({
     sidebar: {
@@ -224,8 +225,8 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
         <div className={styles.sidebar}>
             {/* Logo Section */}
             <div className={styles.logoSection}>
-                <img src={logo} alt="Pixibot Logo" className={styles.logo} />
-                <Text className={styles.appName}>Pixibot</Text>
+                <img src={logo} alt={`${brandConfig.displayName} Logo`} className={styles.logo} />
+                <Text className={styles.appName}>{brandConfig.displayName}</Text>
             </div>
 
             {/* Progress Steps */}
