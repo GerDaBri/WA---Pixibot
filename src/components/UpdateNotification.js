@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, ProgressBar, Text } from '@fluentui/react-components';
+import { CheckmarkCircle20Filled, DismissCircle20Filled } from '@fluentui/react-icons';
 import '../styles/update-notification.css';
 
 const UpdateNotification = ({
@@ -101,7 +102,9 @@ const UpdateNotification = ({
       case 'downloaded':
         return (
           <div className="update-content">
-            <div className="update-icon">✅</div>
+            <div className="update-icon">
+              <CheckmarkCircle20Filled style={{ fontSize: '24px', color: 'var(--color-success)' }} />
+            </div>
             <div className="update-text">
               <Text weight="semibold">Actualización descargada</Text>
               <Text size={200}>¿Instalar y reiniciar ahora?</Text>
@@ -120,7 +123,9 @@ const UpdateNotification = ({
       case 'error':
         return (
           <div className="update-content">
-            <div className="update-icon">❌</div>
+            <div className="update-icon">
+              <DismissCircle20Filled style={{ fontSize: '24px', color: 'var(--color-error)' }} />
+            </div>
             <div className="update-text">
               <Text weight="semibold">Error al actualizar</Text>
               <Text size={200}>{error || 'No se pudo descargar'}</Text>

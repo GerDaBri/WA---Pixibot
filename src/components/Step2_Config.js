@@ -11,6 +11,7 @@ import {
   makeStyles,
   shorthands,
 } from '@fluentui/react-components';
+import { Settings20Regular } from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
   section: {
@@ -413,7 +414,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
           <AccordionItem value="advanced-settings">
             <AccordionHeader expandIconPosition="end">
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                <span style={{ fontSize: 'var(--font-size-lg)' }}>⚙️</span>
+                <Settings20Regular style={{ fontSize: 'var(--font-size-lg)' }} />
                 <span style={{ fontWeight: 600 }}>Configuración Avanzada</span>
               </div>
             </AccordionHeader>

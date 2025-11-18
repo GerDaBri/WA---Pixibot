@@ -1,5 +1,13 @@
 import React from 'react';
 import { Text, Spinner } from '@fluentui/react-components';
+import {
+    HourglassHalf20Regular,
+    Phone20Regular,
+    CheckmarkCircle20Filled,
+    DismissCircle20Filled,
+    LockClosed20Regular,
+    Question20Regular
+} from '@fluentui/react-icons';
 
 const SessionStatusIndicator = ({ sessionStatus, onReconnect, onLogout }) => {
     const getStatusConfig = (status) => {
@@ -7,7 +15,7 @@ const SessionStatusIndicator = ({ sessionStatus, onReconnect, onLogout }) => {
             case 'initializing':
                 return {
                     color: '#0078d4',
-                    icon: '⏳',
+                    Icon: HourglassHalf20Regular,
                     text: 'Inicializando...',
                     description: 'Conectando con WhatsApp Web'
                 };
@@ -15,35 +23,35 @@ const SessionStatusIndicator = ({ sessionStatus, onReconnect, onLogout }) => {
             case 'not_ready':
                 return {
                     color: '#0078d4',
-                    icon: '📱',
+                    Icon: Phone20Regular,
                     text: 'QR Pendiente',
                     description: 'Escanea el código QR para conectar'
                 };
             case 'ready':
                 return {
                     color: '#107c10',
-                    icon: '✅',
+                    Icon: CheckmarkCircle20Filled,
                     text: 'Conectado',
                     description: 'Sesión de WhatsApp activa'
                 };
             case 'disconnected':
                 return {
                     color: '#d13438',
-                    icon: '❌',
+                    Icon: DismissCircle20Filled,
                     text: 'Desconectado',
                     description: 'Sesión cerrada o error de conexión'
                 };
             case 'auth_failure':
                 return {
                     color: '#d13438',
-                    icon: '🔒',
+                    Icon: LockClosed20Regular,
                     text: 'Error de Autenticación',
                     description: 'Fallo en la autenticación de WhatsApp'
                 };
             default:
                 return {
                     color: '#605e5c',
-                    icon: '❓',
+                    Icon: Question20Regular,
                     text: 'Estado Desconocido',
                     description: 'Estado no definido'
                 };
@@ -51,6 +59,7 @@ const SessionStatusIndicator = ({ sessionStatus, onReconnect, onLogout }) => {
     };
 
     const config = getStatusConfig(sessionStatus);
+    const StatusIcon = config.Icon;
 
     return (
         <div style={{
@@ -63,8 +72,9 @@ const SessionStatusIndicator = ({ sessionStatus, onReconnect, onLogout }) => {
             borderRadius: '4px',
             margin: '8px 0'
         }}>
+            <StatusIcon style={{ color: config.color, fontSize: '16px', flexShrink: 0 }} />
             <Text style={{ color: config.color, fontWeight: '500' }}>
-                {config.icon} {config.text}
+                {config.text}
             </Text>
             {sessionStatus === 'initializing' && <Spinner size="tiny" />}
             {/* Removed buttons for disconnected status as auto-reconnection is now handled */}
