@@ -1,5 +1,21 @@
 import React from 'react';
 import { Text, makeStyles, shorthands } from '@fluentui/react-components';
+import {
+    LockClosed20Regular,
+    Folder20Regular,
+    Settings20Regular,
+    PhoneDesktop20Regular,
+    Rocket20Regular,
+    Checkmark20Filled,
+    CheckmarkCircle20Filled,
+    Phone20Regular,
+    HourglassHalf20Regular,
+    DismissCircle20Filled,
+    LockClosedKey20Regular,
+    Question20Regular,
+    Calendar20Regular,
+    Person20Regular
+} from '@fluentui/react-icons';
 import logo from '../../assets/logos/logo-principal.png';
 import brandConfig from '../brandConfig';
 
@@ -176,11 +192,11 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
     const styles = useStyles();
 
     const steps = [
-        { number: 0, label: 'Login', icon: '🔐' },
-        { number: 1, label: 'Archivo', icon: '📁' },
-        { number: 2, label: 'Configuración', icon: '⚙️' },
-        { number: 3, label: 'WhatsApp', icon: '📱' },
-        { number: 4, label: 'Envío', icon: '🚀' },
+        { number: 0, label: 'Login', Icon: LockClosed20Regular },
+        { number: 1, label: 'Archivo', Icon: Folder20Regular },
+        { number: 2, label: 'Configuración', Icon: Settings20Regular },
+        { number: 3, label: 'WhatsApp', Icon: PhoneDesktop20Regular },
+        { number: 4, label: 'Envío', Icon: Rocket20Regular },
     ];
 
     const getStepStatus = (stepNumber) => {
@@ -198,18 +214,18 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
     const getWhatsAppStatusConfig = (status) => {
         switch (status) {
             case 'ready':
-                return { icon: '✅', text: 'Conectado', color: 'var(--color-success)' };
+                return { Icon: CheckmarkCircle20Filled, text: 'Conectado', color: 'var(--color-success)' };
             case 'qr_received':
             case 'not_ready':
-                return { icon: '📱', text: 'QR Pendiente', color: 'var(--color-info)' };
+                return { Icon: Phone20Regular, text: 'QR Pendiente', color: 'var(--color-info)' };
             case 'initializing':
-                return { icon: '⏳', text: 'Inicializando...', color: 'var(--color-info)' };
+                return { Icon: HourglassHalf20Regular, text: 'Inicializando...', color: 'var(--color-info)' };
             case 'disconnected':
-                return { icon: '❌', text: 'Desconectado', color: 'var(--color-error)' };
+                return { Icon: DismissCircle20Filled, text: 'Desconectado', color: 'var(--color-error)' };
             case 'auth_failure':
-                return { icon: '🔒', text: 'Error Auth', color: 'var(--color-error)' };
+                return { Icon: LockClosedKey20Regular, text: 'Error Auth', color: 'var(--color-error)' };
             default:
-                return { icon: '❓', text: 'Desconocido', color: 'var(--text-color-muted)' };
+                return { Icon: Question20Regular, text: 'Desconocido', color: 'var(--text-color-muted)' };
         }
     };
 
@@ -236,12 +252,13 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
                     {steps.map((step, index) => {
                         const status = getStepStatus(step.number);
                         const showConnector = index < steps.length - 1;
+                        const StepIcon = step.Icon;
 
                         return (
                             <div key={step.number}>
                                 <div className={`${styles.step} ${status === 'current' ? styles.stepActive : ''}`}>
                                     <div className={`${styles.stepIndicator} ${getStepIndicatorClass(status)}`}>
-                                        {status === 'completed' ? '✓' : step.icon}
+                                        {status === 'completed' ? <Checkmark20Filled /> : <StepIcon />}
                                     </div>
                                     <Text className={styles.stepLabel}>{step.label}</Text>
                                     {showConnector && (
@@ -260,9 +277,7 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
                     <div className={styles.sectionTitle}>WHATSAPP</div>
                     <div className={styles.whatsappStatus}>
                         <div className={styles.statusRow}>
-                            <span className={styles.statusIcon} style={{ color: whatsappConfig.color }}>
-                                {whatsappConfig.icon}
-                            </span>
+                            <whatsappConfig.Icon className={styles.statusIcon} style={{ color: whatsappConfig.color }} />
                             <Text className={styles.statusText}>{whatsappConfig.text}</Text>
                         </div>
                     </div>
@@ -275,7 +290,7 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
                     <div className={styles.sectionTitle}>LICENCIA</div>
                     <div className={styles.licenseInfo}>
                         <div className={styles.licenseRow}>
-                            <span className={styles.licenseIcon}>📅</span>
+                            <Calendar20Regular className={styles.licenseIcon} />
                             <Text className={styles.licenseText}>
                                 <span className={getDaysRemainingClass(licenseDetails.days_remaining || 0)}>
                                     {licenseDetails.days_remaining || 0} días
@@ -284,7 +299,7 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
                         </div>
                         {userData?.email && (
                             <div className={styles.licenseRow}>
-                                <span className={styles.licenseIcon}>👤</span>
+                                <Person20Regular className={styles.licenseIcon} />
                                 <Text className={styles.licenseText} title={userData.email}>
                                     {userData.email}
                                 </Text>

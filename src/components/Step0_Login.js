@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Label, Spinner, Text, makeStyles, shorthands } from '@fluentui/react-components';
+import { Mail20Regular, LockClosed20Regular, Warning20Regular, CheckmarkCircle20Filled } from '@fluentui/react-icons';
 import logo from '../../assets/logos/logo-principal.png';
 import brandConfig from '../brandConfig';
 
@@ -106,6 +107,9 @@ const useStyles = makeStyles({
         },
     },
     error: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         color: 'var(--color-error)',
         fontSize: 'var(--font-size-sm)',
         textAlign: 'center',
@@ -116,6 +120,9 @@ const useStyles = makeStyles({
         animation: 'shake 0.5s ease',
     },
     success: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         color: 'var(--color-success)',
         fontSize: 'var(--font-size-sm)',
         textAlign: 'center',
@@ -204,7 +211,7 @@ function Step0_Login({ onLoginSuccess }) {
                     {/* Email Input */}
                     <div className={styles.inputGroup}>
                         <label htmlFor="email" className={styles.inputLabel}>
-                            <span className={styles.inputIcon}>📧</span>
+                            <Mail20Regular className={styles.inputIcon} />
                             <span>Correo Electrónico</span>
                         </label>
                         <Input
@@ -222,7 +229,7 @@ function Step0_Login({ onLoginSuccess }) {
                     {/* Password Input */}
                     <div className={styles.inputGroup}>
                         <label htmlFor="password" className={styles.inputLabel}>
-                            <span className={styles.inputIcon}>🔒</span>
+                            <LockClosed20Regular className={styles.inputIcon} />
                             <span>Contraseña</span>
                         </label>
                         <Input
@@ -238,8 +245,18 @@ function Step0_Login({ onLoginSuccess }) {
                     </div>
 
                     {/* Error/Success Messages */}
-                    {error && <div className={styles.error}>⚠️ {error}</div>}
-                    {message && <div className={styles.success}>✅ {message}</div>}
+                    {error && (
+                        <div className={styles.error}>
+                            <Warning20Regular style={{ marginRight: '8px' }} />
+                            {error}
+                        </div>
+                    )}
+                    {message && (
+                        <div className={styles.success}>
+                            <CheckmarkCircle20Filled style={{ marginRight: '8px' }} />
+                            {message}
+                        </div>
+                    )}
 
                     {/* Submit Button */}
                     <button
