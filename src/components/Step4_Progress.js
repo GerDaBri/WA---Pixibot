@@ -194,12 +194,19 @@ const useStyles = makeStyles({
         fontFamily: 'monospace',
         fontSize: 'var(--font-size-sm)',
         minHeight: '300px',
-        maxHeight: '500px',
-        backgroundColor: '#1e1e1e',
-        color: '#d4d4d4',
+        height: '300px',
+        width: '100%',
+        backgroundColor: '#000000 !important',
+        color: '#ffffff !important',
         ...shorthands.borderRadius('var(--radius-md)'),
         ...shorthands.padding('var(--spacing-md)'),
         ...shorthands.border('1px', 'solid', '#333'),
+        '& textarea': {
+            backgroundColor: '#000000 !important',
+            color: '#ffffff !important',
+            width: '100%',
+            height: '100%',
+        },
     },
     saveButton: {
         marginTop: 'var(--spacing-lg)',
@@ -627,7 +634,6 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                                 value={logs.join('\n')}
                                 className={styles.logsTextarea}
                                 resize="vertical"
-                                style={{ color: '#d4d4d4' }}
                             />
                         </AccordionPanel>
                     </AccordionItem>
