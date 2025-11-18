@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Label, Spinner, Text, makeStyles, shorthands } from '@fluentui/react-components';
 import logo from '../../assets/logos/logo-principal.png';
+import brandConfig from '../brandConfig';
 
 const useStyles = makeStyles({
     container: {
@@ -192,8 +193,8 @@ function Step0_Login({ onLoginSuccess }) {
         <div className={styles.container}>
             {/* Welcome Section */}
             <div className={styles.welcomeSection}>
-                <img src={logo} alt="Pixibot Logo" className={styles.welcomeIcon} />
-                <h1 className={styles.welcomeTitle}>Bienvenido a Pixibot</h1>
+                <img src={logo} alt={`${brandConfig.displayName} Logo`} className={styles.welcomeIcon} />
+                <h1 className={styles.welcomeTitle}>Bienvenido a {brandConfig.displayName}</h1>
                 <p className={styles.welcomeSubtitle}>Plataforma de Mensajería WhatsApp Profesional</p>
             </div>
 

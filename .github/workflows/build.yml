@@ -124,13 +124,42 @@ jobs:
           $brandName = "${{ steps.extract_brand.outputs.brand_name }}"
           $brandIndexHtml = "brands/$brandName/index.html"
           $targetIndexHtml = "src/index.html"
-          
+
           if (Test-Path $brandIndexHtml) {
             Copy-Item -Path $brandIndexHtml -Destination $targetIndexHtml -Force
             Write-Host "✓ Copied brand index.html"
           } else {
             Write-Host "Warning: Brand index.html not found: $brandIndexHtml"
           }
+
+      - name: Generate brand configuration for React
+        run: |
+          $brandName = "${{ steps.extract_brand.outputs.brand_name }}"
+          $brandConfigPath = "brands/$brandName/brand.config.json"
+          $brandConfig = Get-Content $brandConfigPath | ConvertFrom-Json
+
+          Write-Host "📝 Generating brandConfig.js for React components..."
+
+          # Generate brandConfig.js file content
+          $brandConfigJS = @"
+// This file is auto-generated during build by GitHub Actions workflow
+// DO NOT EDIT MANUALLY - changes will be overwritten
+
+export const brandConfig = {
+    name: '$($brandConfig.name)',
+    displayName: '$($brandConfig.displayName)',
+    productName: '$($brandConfig.productName)',
+    title: '$($brandConfig.title)',
+    description: '$($brandConfig.description)',
+    version: '$($brandConfig.version)',
+};
+
+export default brandConfig;
+"@
+
+          # Write brandConfig.js to src/
+          $brandConfigJS | Set-Content "src/brandConfig.js" -Encoding UTF8
+          Write-Host "✓ Generated src/brandConfig.js for $($brandConfig.displayName)"
 
       - name: Build webpack
         run: |

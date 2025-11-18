@@ -12,10 +12,13 @@ module.exports = {
     licenseCheckInterval:  60 * 60 * 24 * 2 * 1000,
 
     //2 minutes in milliseconds
-    //licenseCheckInterval: 2 * 60 * 1000, 
-    
-    // App name
-    appName: 'Pixibot',
+    //licenseCheckInterval: 2 * 60 * 1000,
+
+    // App name - dynamically retrieved from package.json via Electron
+    // This ensures the correct brand name is used during build
+    get appName() {
+        return app.getName();
+    },
 
     // Environment info
     isPackaged: isPackaged,
