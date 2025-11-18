@@ -194,10 +194,12 @@ const useStyles = makeStyles({
         fontFamily: 'monospace',
         fontSize: 'var(--font-size-sm)',
         minHeight: '300px',
+        maxHeight: '500px',
         backgroundColor: '#1e1e1e',
         color: '#d4d4d4',
         ...shorthands.borderRadius('var(--radius-md)'),
         ...shorthands.padding('var(--spacing-md)'),
+        ...shorthands.border('1px', 'solid', '#333'),
     },
     saveButton: {
         marginTop: 'var(--spacing-lg)',
@@ -346,19 +348,13 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
 
     return (
         <div className={styles.container}>
-            {/* Campaign Header */}
-            <div className={styles.headerSection}>
-                <div className={styles.campaignTitle}>
-                    {isFinished ? '✅ ' : isRunning ? '▶️ ' : '⏸️ '}
-                    {campaign.config.campaignName || 'Campaña Sin Nombre'}
-                </div>
-            </div>
-
             {/* Finished Banner */}
             {isFinished && (
                 <div className={styles.finishedBanner}>
                     <div className={styles.successIcon}>🎉</div>
-                    <div className={styles.finishedTitle}>¡CAMPAÑA FINALIZADA CON ÉXITO!</div>
+                    <div className={styles.finishedTitle}>
+                        ¡{campaign.config.campaignName || 'CAMPAÑA'} FINALIZADA CON ÉXITO!
+                    </div>
                     <Text size={400}>Todos los mensajes han sido enviados exitosamente</Text>
                     <div className={styles.statsTable}>
                         <div className={styles.statRow}>
@@ -369,6 +365,16 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                             <Text weight="semibold">Tasa de Éxito:</Text>
                             <Text style={{ color: '#155724', fontWeight: '600' }}>100%</Text>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Campaign Header - Only show when not finished */}
+            {!isFinished && (
+                <div className={styles.headerSection}>
+                    <div className={styles.campaignTitle}>
+                        {isRunning ? '▶️ ' : '⏸️ '}
+                        {campaign.config.campaignName || 'Campaña Sin Nombre'}
                     </div>
                 </div>
             )}
@@ -613,7 +619,7 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                 >
                     <AccordionItem value="logs">
                         <AccordionHeader>
-                            <Text size={400} weight="semibold">📋 Registro de Actividad ({logs.length} entradas)</Text>
+                            <Text size={400} weight="semibold">📋 Registro de Actividad</Text>
                         </AccordionHeader>
                         <AccordionPanel>
                             <Textarea
@@ -621,6 +627,7 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                                 value={logs.join('\n')}
                                 className={styles.logsTextarea}
                                 resize="vertical"
+                                style={{ color: '#d4d4d4' }}
                             />
                         </AccordionPanel>
                     </AccordionItem>

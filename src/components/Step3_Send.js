@@ -492,10 +492,9 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                     </div>
                 </div>
 
-                {/* Right Panel: Message Preview & Campaign Summary */}
+                {/* Right Panel: Message Preview */}
                 <div className={styles.card}>
                     <div className={styles.cardHeader}>
-                        <span className={styles.cardIcon}>👁️</span>
                         <span className={styles.cardTitle}>Vista Previa del Mensaje</span>
                     </div>
 
@@ -505,30 +504,6 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                         )}
                         <div className={styles.messagePreview}>
                             {previewMessage || 'El mensaje aparecerá aquí...'}
-                        </div>
-                    </div>
-
-                    <div className={styles.cardHeader} style={{ marginTop: 'var(--spacing-lg)' }}>
-                        <span className={styles.cardIcon}>📊</span>
-                        <span className={styles.cardTitle}>Resumen de Campaña</span>
-                    </div>
-
-                    <div className={styles.statsGrid}>
-                        <div className={styles.statItem}>
-                            <span className={styles.statLabel}>Nombre</span>
-                            <span className={styles.statValue}>{campaign?.config?.campaignName || 'Sin nombre'}</span>
-                        </div>
-                        <div className={styles.statItem}>
-                            <span className={styles.statLabel}>Tipo de Mensaje</span>
-                            <span className={styles.statValue}>{getMessageTypeLabel()}</span>
-                        </div>
-                        <div className={styles.statItem}>
-                            <span className={styles.statLabel}>Total Contactos</span>
-                            <span className={styles.statValue}>{getTotalContacts()}</span>
-                        </div>
-                        <div className={styles.statItem}>
-                            <span className={styles.statLabel}>Retraso de Envío</span>
-                            <span className={styles.statValue}>{campaign?.config?.sendDelay || 5}s</span>
                         </div>
                     </div>
 

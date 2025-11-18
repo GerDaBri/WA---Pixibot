@@ -179,9 +179,9 @@ if (!gotTheLock) {
     function createWindow() {
         mainWindow = new BrowserWindow({
             width: 1200,
-            height: 750,
+            height: 800,
             minWidth: 1000,
-            minHeight: 650,
+            minHeight: 700,
             center: true,
             autoHideMenuBar: true,
             icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
