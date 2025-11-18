@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, ProgressBar, Text } from '@fluentui/react-components';
-import { CheckmarkCircle20Filled, DismissCircle20Filled } from '@fluentui/react-icons';
+import { CheckmarkCircle20Filled, DismissCircle20Filled, Search20Regular, ArrowClockwise20Regular, ArrowDownload20Regular } from '@fluentui/react-icons';
 import '../styles/update-notification.css';
 
 const UpdateNotification = ({
@@ -51,7 +51,9 @@ const UpdateNotification = ({
       case 'checking':
         return (
           <div className="update-content">
-            <div className="update-icon">🔍</div>
+            <div className="update-icon">
+              <Search20Regular />
+            </div>
             <div className="update-text">
               <Text weight="semibold">Verificando actualizaciones...</Text>
             </div>
@@ -61,7 +63,9 @@ const UpdateNotification = ({
       case 'available':
         return (
           <div className="update-content">
-            <div className="update-icon">🔄</div>
+            <div className="update-icon">
+              <ArrowClockwise20Regular />
+            </div>
             <div className="update-text">
               <Text weight="semibold">Nueva actualización disponible</Text>
               {updateInfo?.version && (
@@ -75,7 +79,9 @@ const UpdateNotification = ({
       case 'downloading':
         return (
           <div className="update-content">
-            <div className="update-icon">⬇️</div>
+            <div className="update-icon">
+              <ArrowDownload20Regular />
+            </div>
             <div className="update-text">
               <Text weight="semibold">Descargando actualización...</Text>
               {downloadProgress && (

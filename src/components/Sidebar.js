@@ -27,7 +27,7 @@ const useStyles = makeStyles({
         backgroundColor: 'var(--sidebar-bg)',
         display: 'flex',
         flexDirection: 'column',
-        ...shorthands.padding('var(--spacing-xl)'),
+        ...shorthands.padding('var(--spacing-lg)'),
         boxShadow: 'var(--shadow-lg)',
         position: 'relative',
         overflowY: 'auto',
@@ -36,10 +36,10 @@ const useStyles = makeStyles({
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        ...shorthands.gap('var(--spacing-md)'),
-        ...shorthands.padding('var(--spacing-lg)', 0),
+        ...shorthands.gap('var(--spacing-sm)'),
+        ...shorthands.padding('var(--spacing-md)', 0),
         ...shorthands.borderBottom('1px', 'solid', 'rgba(255, 255, 255, 0.1)'),
-        marginBottom: 'var(--spacing-xl)',
+        marginBottom: 'var(--spacing-lg)',
     },
     logo: {
         width: '80px',
@@ -53,7 +53,7 @@ const useStyles = makeStyles({
         letterSpacing: '0.5px',
     },
     section: {
-        marginBottom: 'var(--spacing-2xl)',
+        marginBottom: 'var(--spacing-xl)',
     },
     sectionTitle: {
         color: 'rgba(255, 255, 255, 0.6)',
@@ -61,7 +61,7 @@ const useStyles = makeStyles({
         fontWeight: 'var(--font-weight-semibold)',
         textTransform: 'uppercase',
         letterSpacing: '1px',
-        marginBottom: 'var(--spacing-lg)',
+        marginBottom: 'var(--spacing-md)',
     },
     stepper: {
         display: 'flex',
@@ -71,8 +71,8 @@ const useStyles = makeStyles({
     step: {
         display: 'flex',
         alignItems: 'center',
-        ...shorthands.gap('var(--spacing-md)'),
-        ...shorthands.padding('var(--spacing-md)'),
+        ...shorthands.gap('var(--spacing-sm)'),
+        ...shorthands.padding('var(--spacing-sm)'),
         ...shorthands.borderRadius('var(--radius-sm)'),
         cursor: 'pointer',
         transition: 'all var(--transition-fast)',
@@ -127,7 +127,7 @@ const useStyles = makeStyles({
         backgroundColor: 'var(--primary-color)',
     },
     whatsappStatus: {
-        ...shorthands.padding('var(--spacing-lg)'),
+        ...shorthands.padding('var(--spacing-md)'),
         ...shorthands.borderRadius('var(--radius-md)'),
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
         ...shorthands.border('1px', 'solid', 'rgba(255, 255, 255, 0.1)'),
@@ -151,7 +151,7 @@ const useStyles = makeStyles({
         fontSize: 'var(--font-size-xs)',
     },
     licenseInfo: {
-        ...shorthands.padding('var(--spacing-lg)'),
+        ...shorthands.padding('var(--spacing-md)'),
         ...shorthands.borderRadius('var(--radius-md)'),
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
         ...shorthands.border('1px', 'solid', 'rgba(255, 255, 255, 0.1)'),
@@ -167,6 +167,7 @@ const useStyles = makeStyles({
     },
     licenseIcon: {
         fontSize: 'var(--font-size-base)',
+        color: '#fff',
     },
     licenseText: {
         color: 'var(--sidebar-text)',

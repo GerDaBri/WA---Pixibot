@@ -11,7 +11,14 @@ import {
   makeStyles,
   shorthands,
 } from '@fluentui/react-components';
-import { Settings20Regular } from '@fluentui/react-icons';
+import {
+  Settings20Regular,
+  Document20Regular,
+  Chat20Regular,
+  Attach20Regular,
+  Image20Regular,
+  Delete20Regular
+} from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
   section: {
@@ -48,23 +55,6 @@ const useStyles = makeStyles({
       boxShadow: '0 0 0 4px rgba(76, 175, 80, 0.1)',
     },
   },
-  charCounter: {
-    position: 'absolute',
-    bottom: 'var(--spacing-sm)',
-    right: 'var(--spacing-md)',
-    fontSize: 'var(--font-size-xs)',
-    color: 'var(--text-color-muted)',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    ...shorthands.padding('var(--spacing-xs)', 'var(--spacing-sm)'),
-    ...shorthands.borderRadius('var(--radius-sm)'),
-    pointerEvents: 'none',
-  },
-  charCounterWarning: {
-    color: 'var(--color-warning)',
-  },
-  charCounterError: {
-    color: 'var(--color-error)',
-  },
   variablesGrid: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -94,17 +84,21 @@ const useStyles = makeStyles({
   },
   messageTypeCards: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
     ...shorthands.gap('var(--spacing-lg)'),
     marginTop: 'var(--spacing-md)',
   },
   messageTypeCard: {
-    ...shorthands.padding('var(--spacing-xl)'),
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    ...shorthands.gap('var(--spacing-md)'),
+    ...shorthands.padding('var(--spacing-md)', 'var(--spacing-xl)'),
     ...shorthands.borderRadius('var(--radius-lg)'),
     ...shorthands.border('2px', 'solid', 'rgba(0, 0, 0, 0.1)'),
     cursor: 'pointer',
     transition: 'all var(--transition-fast)',
-    textAlign: 'center',
+    textAlign: 'left',
     backgroundColor: 'var(--surface-color)',
     '&:hover': {
       ...shorthands.border('2px', 'solid', 'rgba(76, 175, 80, 0.4)'),
@@ -118,17 +112,16 @@ const useStyles = makeStyles({
     boxShadow: 'var(--shadow-md)',
   },
   messageTypeIcon: {
-    fontSize: '48px',
-    marginBottom: 'var(--spacing-md)',
+    fontSize: '28px',
   },
   messageTypeTitle: {
     fontSize: 'var(--font-size-base)',
     fontWeight: 'var(--font-weight-semibold)',
     color: 'var(--text-color-primary)',
-    marginBottom: 'var(--spacing-xs)',
+    marginBottom: 'var(--spacing-3xs)',
   },
   messageTypeDescription: {
-    fontSize: 'var(--font-size-sm)',
+    fontSize: 'var(--font-size-2xs)',
     color: 'var(--text-color-secondary)',
   },
   mediaSection: {
@@ -274,13 +267,6 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
     return selectedFilePath.substring(lastSlashIndex + 1);
   };
 
-  const getCharCounterClass = () => {
-    const length = message.length;
-    if (length > 4000) return styles.charCounterError;
-    if (length > 3500) return styles.charCounterWarning;
-    return '';
-  };
-
   return (
     <div className="step-container">
       <h2>Paso 2: Configuración del Mensaje</h2>
@@ -288,7 +274,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
       {/* Basic Information Section */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>
-          <span className={styles.sectionIcon}>📝</span>
+          <span className={styles.sectionIcon}><Document20Regular /></span>
           Información Básica
         </div>
         <div className="form-group">
@@ -310,7 +296,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
       {/* Message Section */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>
-          <span className={styles.sectionIcon}>💬</span>
+          <span className={styles.sectionIcon}><Chat20Regular /></span>
           Contenido del Mensaje
         </div>
 
@@ -327,9 +313,6 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
               className={styles.textarea}
               ref={messageTextareaRef}
             />
-            <div className={`${styles.charCounter} ${getCharCounterClass()}`}>
-              {message.length} / 4096
-            </div>
           </div>
         </div>
 
@@ -354,7 +337,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
       {/* Message Type Section */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>
-          <span className={styles.sectionIcon}>📎</span>
+          <span className={styles.sectionIcon}><Attach20Regular /></span>
           Tipo de Mensaje
         </div>
 
@@ -363,7 +346,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
             className={`${styles.messageTypeCard} ${messageType === '1' ? styles.messageTypeCardActive : ''}`}
             onClick={() => setMessageType('1')}
           >
-            <div className={styles.messageTypeIcon}>💬</div>
+            <div className={styles.messageTypeIcon}><Chat20Regular /></div>
             <div className={styles.messageTypeTitle}>Solo Texto</div>
             <div className={styles.messageTypeDescription}>Enviar mensaje de texto únicamente</div>
           </div>
@@ -372,7 +355,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
             className={`${styles.messageTypeCard} ${messageType === '2' ? styles.messageTypeCardActive : ''}`}
             onClick={() => setMessageType('2')}
           >
-            <div className={styles.messageTypeIcon}>🖼️</div>
+            <div className={styles.messageTypeIcon}><Image20Regular /></div>
             <div className={styles.messageTypeTitle}>Con Multimedia</div>
             <div className={styles.messageTypeDescription}>Agregar imagen, video o PDF</div>
           </div>
@@ -381,18 +364,18 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
         {messageType === '2' && (
           <div className={styles.mediaSection}>
             {!selectedFilePath ? (
-              <Button appearance="primary" onClick={handleMediaSelect} size="large">
-                📎 Seleccionar Archivo Multimedia
+              <Button appearance="primary" onClick={handleMediaSelect} size="large" icon={<Attach20Regular />}>
+                Seleccionar Archivo Multimedia
               </Button>
             ) : (
               <>
                 <div className={styles.mediaPreview}>
                   <div className={styles.mediaInfo}>
-                    <div className={styles.mediaIcon}>📄</div>
+                    <div className={styles.mediaIcon}><Document20Regular /></div>
                     <div className={styles.mediaFileName}>{getFileName()}</div>
                   </div>
-                  <Button appearance="subtle" onClick={() => setSelectedFilePath('')}>
-                    🗑️ Eliminar
+                  <Button appearance="subtle" onClick={() => setSelectedFilePath('')} icon={<Delete20Regular />}>
+                    Eliminar
                   </Button>
                 </div>
                 <Button appearance="outline" onClick={handleMediaSelect} style={{ marginTop: 'var(--spacing-md)' }}>

@@ -14,7 +14,10 @@ import {
     LockClosed20Regular,
     Rocket20Regular,
     Play20Regular,
-    ArrowClockwise20Regular
+    ArrowClockwise20Regular,
+    Chat20Regular,
+    SignOut20Regular,
+    ArrowLeft20Regular
 } from '@fluentui/react-icons';
 
 // New FilePreview Component
@@ -250,6 +253,8 @@ const useStyles = makeStyles({
     },
     logoutButton: {
         flex: '1',
+        height: '40px',
+        fontSize: 'var(--font-size-sm)',
     },
     centeredContent: {
         display: 'flex',
@@ -400,7 +405,7 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                 {/* Left Panel: WhatsApp Connection */}
                 <div className={styles.card}>
                     <div className={styles.cardHeader}>
-                        <span className={styles.cardIcon}>💬</span>
+                        <span className={styles.cardIcon}><Chat20Regular /></span>
                         <span className={styles.cardTitle}>Conexión WhatsApp</span>
                     </div>
 
@@ -445,8 +450,9 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                                 onClick={handleLogout}
                                 disabled={isLoggingOut}
                                 className={styles.logoutButton}
+                                icon={<SignOut20Regular />}
                             >
-                                {isLoggingOut ? <><Spinner size="tiny" /> Cerrando Sesión...</> : '🚪 Cerrar Sesión'}
+                                {isLoggingOut ? <><Spinner size="tiny" /> Cerrando Sesión...</> : 'Cerrar Sesión'}
                             </Button>
                         </div>
                     )}
@@ -491,16 +497,17 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
                                         console.log("Step3_Send: Reconnect button clicked (auth_failure) - calling initializeClient");
                                         electronAPI.initializeClient();
                                     }}
+                                    icon={<ArrowClockwise20Regular />}
                                 >
-                                    🔄 Reconectar
+                                    Reconectar
                                 </Button>
                             )}
                         </div>
                     )}
 
                     <div className={styles.actionButtons}>
-                        <Button appearance="secondary" onClick={() => onBack()} className={styles.backButton}>
-                            ← Atrás
+                        <Button appearance="secondary" onClick={() => onBack()} className={styles.backButton} icon={<ArrowLeft20Regular />}>
+                            Atrás
                         </Button>
                     </div>
                 </div>

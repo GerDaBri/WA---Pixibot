@@ -1,6 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { Button, makeStyles, shorthands } from '@fluentui/react-components';
-import { CheckmarkCircle20Filled, Warning20Filled, Delete20Regular } from '@fluentui/react-icons';
+import {
+    CheckmarkCircle20Filled,
+    Warning20Filled,
+    Delete20Regular,
+    DocumentAdd20Regular,
+    Lightbulb20Regular,
+    Document20Regular
+} from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
     container: {
@@ -313,12 +320,14 @@ function Step1_File({ onNext, initialConfig, electronAPI }) {
                     {/* Drop Zone */}
                     <div
                         className={`${styles.dropZone} ${isDragging ? styles.dropZoneActive : ''}`}
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        onClick={handleFileSelect}
-                    >
-                        <div className={styles.dropZoneIcon}>📄</div>
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={handleFileSelect}
+                >
+                    <div className={styles.dropZoneIcon}>
+                        <DocumentAdd20Regular style={{ fontSize: '32px' }} />
+                    </div>
                         <div className={styles.dropZoneTitle}>Arrastra tu archivo aquí</div>
                         <div className={styles.dropZoneText}>o haz clic para seleccionar</div>
                         <Button appearance="primary" size="large">
@@ -332,7 +341,9 @@ function Step1_File({ onNext, initialConfig, electronAPI }) {
                     {/* Template Section */}
                     <div className={styles.templateSection}>
                         <div className={styles.templateInfo}>
-                            <div className={styles.templateIcon}>💡</div>
+                            <div className={styles.templateIcon}>
+                                <Lightbulb20Regular style={{ fontSize: '24px' }} />
+                            </div>
                             <div className={styles.templateText}>
                                 <div className={styles.templateTitle}>¿No tienes una plantilla?</div>
                                 <div className={styles.templateDescription}>
@@ -348,10 +359,12 @@ function Step1_File({ onNext, initialConfig, electronAPI }) {
             ) : (
                 <>
                     {/* File Preview */}
-                    <div className={styles.filePreview}>
-                        <div className={styles.filePreviewHeader}>
-                            <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                                <div className={styles.fileIcon}>📊</div>
+                        <div className={styles.filePreview}>
+                            <div className={styles.filePreviewHeader}>
+                                <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                                    <div className={styles.fileIcon}>
+                                        <Document20Regular style={{ fontSize: '24px' }} />
+                                    </div>
                                 <div className={styles.fileInfo}>
                                     <div className={styles.fileName}>{getFileName()}</div>
                                     <div className={styles.filePath}>{selectedFilePath}</div>

@@ -14,7 +14,19 @@ import {
     shorthands,
     Text,
 } from '@fluentui/react-components';
-import { HourglassHalf20Regular, Settings20Regular, TrendingLines20Regular } from '@fluentui/react-icons';
+import {
+    HourglassHalf20Regular,
+    Settings20Regular,
+    ArrowTrendingLines20Regular,
+    Send20Regular,
+    ContactCardGroup20Regular,
+    PauseCircle20Regular,
+    CheckmarkCircle48Filled,
+    Save20Regular,
+    Clipboard20Regular,
+    PlayCircle20Regular,
+    AddCircle20Regular
+} from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
     container: {
@@ -256,9 +268,17 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
         }
 
         if (countdownState.type === 'pausing' && countdownState.remainingTime > 0) {
-            return `⏸️ Pausa automática: ${formatTime(countdownState.remainingTime)}`;
+            return (
+                <>
+                    <PauseCircle20Regular /> Pausa automática: {formatTime(countdownState.remainingTime)}
+                </>
+            );
         } else if (countdownState.type === 'sending' || countdownState.remainingTime <= 0) {
-            return '📤 Enviando mensajes';
+            return (
+                <>
+                    <Send20Regular /> Enviando mensajes
+                </>
+            );
         }
 
         return null;
@@ -359,7 +379,9 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
             {/* Finished Banner */}
             {isFinished && (
                 <div className={styles.finishedBanner}>
-                    <div className={styles.successIcon}>🎉</div>
+                    <div className={styles.successIcon}>
+                        <CheckmarkCircle48Filled style={{ color: '#155724', fontSize: '64px' }} />
+                    </div>
                     <div className={styles.finishedTitle}>
                         ¡{campaign.config.campaignName || 'CAMPAÑA'} FINALIZADA CON ÉXITO!
                     </div>
@@ -377,28 +399,23 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                 </div>
             )}
 
-            {/* Campaign Header - Only show when not finished */}
-            {!isFinished && (
-                <div className={styles.headerSection}>
-                    <div className={styles.campaignTitle}>
-                        {isRunning ? '▶️ ' : '⏸️ '}
-                        {campaign.config.campaignName || 'Campaña Sin Nombre'}
-                    </div>
-                </div>
-            )}
 
             {/* Metrics Grid */}
             {!isFinished && (
                 <div className={styles.metricsGrid}>
                     <div className={styles.metricCard}>
-                        <div className={styles.metricIcon}>📤</div>
+                        <div className={styles.metricIcon}>
+                            <Send20Regular style={{ fontSize: '24px' }} />
+                        </div>
                         <div className={styles.metricLabel}>Enviados</div>
                         <div className={styles.metricValue}>{currentIndex}</div>
                         <div className={styles.metricSubtext}>mensajes completados</div>
                     </div>
 
                     <div className={styles.metricCard}>
-                        <div className={styles.metricIcon}>📊</div>
+                        <div className={styles.metricIcon}>
+                            <ContactCardGroup20Regular style={{ fontSize: '24px' }} />
+                        </div>
                         <div className={styles.metricLabel}>Total</div>
                         <div className={styles.metricValue}>{total}</div>
                         <div className={styles.metricSubtext}>contactos en campaña</div>
@@ -415,7 +432,7 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
 
                     <div className={styles.metricCard}>
                         <div className={styles.metricIcon}>
-                            <TrendingLines20Regular style={{ fontSize: '24px' }} />
+                            <ArrowTrendingLines20Regular style={{ fontSize: '24px' }} />
                         </div>
                         <div className={styles.metricLabel}>Progreso</div>
                         <div className={styles.metricValue}>{progressPercent}%</div>
@@ -457,16 +474,18 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                                 onClick={() => onPause(campaign.id)}
                                 disabled={isPaused || sessionStatus !== 'ready'}
                                 className={styles.controlButton}
+                                icon={<PauseCircle20Regular />}
                             >
-                                ⏸️ Pausar
+                                Pausar
                             </Button>
                             <Button
                                 appearance="primary"
                                 onClick={() => onResume(campaign.id)}
                                 disabled={!isPaused || sessionStatus !== 'ready'}
                                 className={styles.controlButton}
+                                icon={<PlayCircle20Regular />}
                             >
-                                ▶️ Reanudar
+                                Reanudar
                             </Button>
                         </>
                     ) : null}
@@ -475,8 +494,9 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                         onClick={onStartNew}
                         disabled={campaign.status === 'running'}
                         className={styles.controlButton}
+                        icon={<AddCircle20Regular />}
                     >
-                        {isFinished ? '🆕 Nueva Campaña' : '➕ Nueva Campaña'}
+                        Nueva Campaña
                     </Button>
                 </div>
             </div>
@@ -612,8 +632,9 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                                     onClick={handleSaveAdvancedSettings}
                                     disabled={isSaving}
                                     className={styles.saveButton}
+                                    icon={<Save20Regular />}
                                 >
-                                    {isSaving ? <><Spinner size="tiny" /> Guardando...</> : '💾 Guardar Configuración Avanzada'}
+                                    {isSaving ? <><Spinner size="tiny" /> Guardando...</> : 'Guardar Configuración Avanzada'}
                                 </Button>
                             ) : (
                                 <Text className={styles.disabledMessage}>
@@ -634,7 +655,10 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                 >
                     <AccordionItem value="logs">
                         <AccordionHeader>
-                            <Text size={400} weight="semibold">📋 Registro de Actividad</Text>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                                <Clipboard20Regular />
+                                <Text size={400} weight="semibold">Registro de Actividad</Text>
+                            </div>
                         </AccordionHeader>
                         <AccordionPanel>
                             <Textarea
