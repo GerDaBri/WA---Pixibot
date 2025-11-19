@@ -140,25 +140,21 @@ jobs:
 
           Write-Host "📝 Generating brandConfig.js for React components..."
 
-          # Generate brandConfig.js file content
-          $brandConfigJS = @"
-// This file is auto-generated during build by GitHub Actions workflow
-// DO NOT EDIT MANUALLY - changes will be overwritten
-
-export const brandConfig = {
-    name: '$($brandConfig.name)',
-    displayName: '$($brandConfig.displayName)',
-    productName: '$($brandConfig.productName)',
-    title: '$($brandConfig.title)',
-    description: '$($brandConfig.description)',
-    version: '$($brandConfig.version)',
-};
-
-export default brandConfig;
-"@
+          # Create brandConfig.js content
+          $content = "// This file is auto-generated during build by GitHub Actions workflow`n"
+          $content += "// DO NOT EDIT MANUALLY - changes will be overwritten`n`n"
+          $content += "export const brandConfig = {`n"
+          $content += "    name: '$($brandConfig.name)',`n"
+          $content += "    displayName: '$($brandConfig.displayName)',`n"
+          $content += "    productName: '$($brandConfig.productName)',`n"
+          $content += "    title: '$($brandConfig.title)',`n"
+          $content += "    description: '$($brandConfig.description)',`n"
+          $content += "    version: '$($brandConfig.version)',`n"
+          $content += "};`n`n"
+          $content += "export default brandConfig;`n"
 
           # Write brandConfig.js to src/
-          $brandConfigJS | Set-Content "src/brandConfig.js" -Encoding UTF8
+          $content | Set-Content "src/brandConfig.js" -Encoding UTF8
           Write-Host "✓ Generated src/brandConfig.js for $($brandConfig.displayName)"
 
       - name: Build webpack
@@ -183,10 +179,20 @@ export default brandConfig;
             Write-Host "✓ Using BRAND_RELEASE_TOKEN for $brandName (cross-repo to brand releases)"
           }
 
-      - name: Build/release Electron app
+      - name: Build/release Electron app (with custom token)
+        if: steps.determine_token.outputs.use_custom_token == 'true'
         uses: samuelmeuli/action-electron-builder@v1
         with:
-          github_token: ${{ steps.determine_token.outputs.use_custom_token == 'true' && secrets.BRAND_RELEASE_TOKEN || secrets.github_token }}
+          github_token: ${{ secrets.BRAND_RELEASE_TOKEN }}
+          release: true
+          skip_build: true
+          args: --publish=always
+
+      - name: Build/release Electron app (with default token)
+        if: steps.determine_token.outputs.use_custom_token != 'true'
+        uses: samuelmeuli/action-electron-builder@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           release: true
           skip_build: true
           args: --publish=always
