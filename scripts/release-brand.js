@@ -38,9 +38,12 @@ function getLatestTag() {
     }
 }
 
-function createReleaseTag(brandConfig) {
-    const tagName = `${brandConfig.name}-v${brandConfig.version}`;
-    const releaseMessage = `Release ${brandConfig.displayName} v${brandConfig.version}`;
+function createReleaseTag(brandConfig, customTag = null) {
+    // Use custom tag if provided, otherwise use brand version
+    const tagName = customTag || `${brandConfig.name}-v${brandConfig.version}`;
+    const releaseMessage = customTag
+        ? `Release ${brandConfig.displayName} - ${customTag}`
+        : `Release ${brandConfig.displayName} v${brandConfig.version}`;
 
     try {
         // Check if tag already exists
@@ -157,23 +160,47 @@ async function main() {
         const brandConfig = loadBrandConfig(brandName);
 
         console.log(`\n🏷️  Selected brand: ${brandConfig.displayName}`);
-        console.log(`📦 Version: ${brandConfig.version}`);
-        console.log(`🏷️  Tag will be: ${brandName}-v${brandConfig.version}`);
+        console.log(`📦 Version in config: ${brandConfig.version}`);
+
+        // Ask if user wants to customize the tag
+        console.log(`\n💡 Default tag will be: ${brandName}-v${brandConfig.version}`);
+        const customizeTag = await confirmAction('Do you want to customize the tag name?');
+
+        let customTag = null;
+        let tagName;
+
+        if (customizeTag) {
+            const tagInput = await promptUser('Enter custom tag name (e.g., pixibot-v1.0.7-beta): ');
+            if (tagInput && tagInput.trim()) {
+                customTag = tagInput.trim();
+                tagName = customTag;
+                console.log(`\n🏷️  Custom tag will be: ${customTag}`);
+                console.log(`📦 Version in config remains: ${brandConfig.version} (unchanged)`);
+            } else {
+                console.log('✗ Invalid tag name provided. Using default.');
+                tagName = `${brandName}-v${brandConfig.version}`;
+            }
+        } else {
+            tagName = `${brandName}-v${brandConfig.version}`;
+        }
+
+        console.log(`\n🏷️  Tag to create: ${tagName}`);
 
         // Confirm release
-        const confirm = await confirmAction(`Create and push release tag for ${brandConfig.displayName}?`);
+        const confirm = await confirmAction(`Create and push release tag "${tagName}" for ${brandConfig.displayName}?`);
         if (!confirm) {
             console.log('Aborted.');
             process.exit(0);
         }
 
         // Create and push tag
-        const tagName = createReleaseTag(brandConfig);
-        pushTagToRemote(tagName);
+        const createdTag = createReleaseTag(brandConfig, customTag);
+        pushTagToRemote(createdTag);
 
         console.log(`\n✅ Release completed successfully!`);
-        console.log(`🏷️  Tag: ${tagName}`);
-        console.log(`🔗 GitHub repository: https://github.com/${brandConfig.github.owner}/${brandConfig.github.repo}/releases/tag/${tagName}`);
+        console.log(`🏷️  Tag: ${createdTag}`);
+        console.log(`📦 Version in config: ${brandConfig.version} (unchanged)`);
+        console.log(`🔗 GitHub repository: https://github.com/${brandConfig.github.owner}/${brandConfig.github.repo}/releases/tag/${createdTag}`);
 
     } catch (error) {
         console.error('✗ Release failed:', error.message);
