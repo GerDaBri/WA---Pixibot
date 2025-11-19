@@ -20,8 +20,8 @@ const useStyles = makeStyles({
         animation: 'fadeIn 0.6s ease',
     },
     welcomeIcon: {
-        width: '120px',
-        height: '120px',
+        width: '80px',
+        height: '80px',
         marginBottom: 'var(--spacing-lg)',
         animation: 'float 3s ease-in-out infinite',
         objectFit: 'contain',

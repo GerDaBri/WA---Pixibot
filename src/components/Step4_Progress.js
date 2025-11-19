@@ -25,7 +25,9 @@ import {
     Save20Regular,
     Clipboard20Regular,
     PlayCircle20Regular,
-    AddCircle20Regular
+    AddCircle20Regular,
+    Phone20Regular,
+    DismissCircle20Filled
 } from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
@@ -235,6 +237,61 @@ const useStyles = makeStyles({
         textAlign: 'center',
         ...shorthands.padding('var(--spacing-lg)'),
     },
+    qrReconnectCard: {
+        backgroundColor: '#fff3cd',
+        ...shorthands.border('2px', 'solid', '#ffc107'),
+        ...shorthands.borderRadius('var(--radius-xl)'),
+        ...shorthands.padding('var(--spacing-2xl)'),
+        marginBottom: 'var(--spacing-xl)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 'var(--spacing-lg)',
+        boxShadow: 'var(--shadow-lg)',
+    },
+    qrReconnectHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--spacing-sm)',
+        fontSize: 'var(--font-size-xl)',
+        fontWeight: '700',
+        color: '#856404',
+        marginBottom: 'var(--spacing-md)',
+    },
+    qrCodeContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 'var(--spacing-lg)',
+        ...shorthands.padding('var(--spacing-xl)'),
+        backgroundColor: 'white',
+        ...shorthands.borderRadius('var(--radius-lg)'),
+        boxShadow: 'var(--shadow-md)',
+    },
+    qrCodeImage: {
+        width: '280px',
+        height: '280px',
+        ...shorthands.borderRadius('var(--radius-lg)'),
+        ...shorthands.padding('var(--spacing-md)'),
+        backgroundColor: 'white',
+        boxShadow: 'var(--shadow-md)',
+        ...shorthands.border('3px', 'solid', '#ffc107'),
+        animation: 'qrPulse 2s ease-in-out infinite',
+    },
+    qrInstructions: {
+        listStylePosition: 'inside',
+        ...shorthands.padding('0'),
+        ...shorthands.margin('0'),
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--spacing-sm)',
+        textAlign: 'left',
+    },
+    qrInstructionItem: {
+        fontSize: 'var(--font-size-sm)',
+        color: '#856404',
+        lineHeight: '1.6',
+    },
 });
 
 const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, sessionStatus, qrCodeData }) => {
@@ -376,6 +433,42 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
 
     return (
         <div className={styles.container}>
+            {/* QR Code Reconnection Card - Show when disconnected and QR is available */}
+            {(sessionStatus === 'qr_received' || sessionStatus === 'initializing') && qrCodeData && !isFinished && (
+                <div className={styles.qrReconnectCard}>
+                    <div className={styles.qrReconnectHeader}>
+                        <DismissCircle20Filled style={{ fontSize: '32px' }} />
+                        <span>Reconexión de WhatsApp Requerida</span>
+                    </div>
+                    <Text size={400} style={{ color: '#856404', textAlign: 'center', maxWidth: '600px' }}>
+                        Tu sesión de WhatsApp se ha desconectado durante la campaña. Por favor, escanea el código QR para reconectar y continuar.
+                    </Text>
+                    {sessionStatus === 'qr_received' && qrCodeData && (
+                        <div className={styles.qrCodeContainer}>
+                            <Text weight="semibold" size={400} style={{ color: '#856404' }}>
+                                Escanea el código QR con tu teléfono:
+                            </Text>
+                            <img src={qrCodeData} alt="QR Code" className={styles.qrCodeImage} />
+                            <ol className={styles.qrInstructions}>
+                                <li className={styles.qrInstructionItem}>Abre WhatsApp en tu teléfono</li>
+                                <li className={styles.qrInstructionItem}>Ve a Configuración {'>'} Dispositivos vinculados</li>
+                                <li className={styles.qrInstructionItem}>Toca "Vincular un dispositivo"</li>
+                                <li className={styles.qrInstructionItem}>Apunta tu teléfono a esta pantalla para escanear el código</li>
+                            </ol>
+                        </div>
+                    )}
+                    {sessionStatus === 'initializing' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                            <Spinner size="small" />
+                            <Text size={400} style={{ color: '#856404' }}>Inicializando conexión con WhatsApp...</Text>
+                        </div>
+                    )}
+                    <Text size={300} style={{ color: '#856404', fontStyle: 'italic', textAlign: 'center' }}>
+                        La campaña se reanudará automáticamente una vez que reconectes.
+                    </Text>
+                </div>
+            )}
+
             {/* Finished Banner */}
             {isFinished && (
                 <div className={styles.finishedBanner}>

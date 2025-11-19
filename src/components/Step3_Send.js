@@ -253,7 +253,7 @@ const useStyles = makeStyles({
     },
     logoutButton: {
         flex: '1',
-        height: '40px',
+        height: '20px',
         fontSize: 'var(--font-size-sm)',
     },
     centeredContent: {
