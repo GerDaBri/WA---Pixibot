@@ -7,7 +7,7 @@ export const brandConfig = {
     productName: 'Pixibot',
     title: 'Pixibot - WhatsAppBot',
     description: 'A WhatsApp bot application.',
-    version: '1.0.5',
+    version: '1.0.7',
 };
 
 export default brandConfig;

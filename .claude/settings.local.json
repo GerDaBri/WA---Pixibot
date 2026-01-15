@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(node --check:*)",
+      "Bash(npm show:*)",
+      "Bash(npm install)",
+      "Bash(npm start)",
+      "Bash(node -e:*)",
+      "Bash(node -c:*)",
+      "Bash(npm view:*)",
+      "Bash(npm install:*)",
+      "Bash(powershell -Command \"echo $env:APPDATA\")",
+      "Bash(powershell -Command \"[Environment]::GetFolderPath\\(''ApplicationData''\\)\")",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\GB\\\\AppData\\\\Roaming'' | Where-Object { $_Name -like ''*whatsapp*'' -or $_Name -like ''*pixibot*'' } | Select-Object Name\")",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\GB\\\\AppData\\\\Roaming /b\")"
+    ]
+  }
+}

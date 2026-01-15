@@ -11,6 +11,11 @@ const winston = require('winston');
 const config = require('./config');
 const whatsappLogic = require('../bot/whatsapp-logic');
 
+// FASE 8: Importar nuevo sistema de logging
+const { initializeLogging, createLogger } = require('../bot/utils/logger');
+const { formatUserMessage, classifyError } = require('../bot/utils/error-handler');
+const SessionManager = require('../bot/managers/session-manager');
+
 let mainWindow;
 
 // --- Power Save Blocker Variables ---
@@ -403,7 +408,7 @@ if (!gotTheLock) {
         }
     });
 
-    // MEJORA: Cleanup de procesos Puppeteer antes de quit
+    // FASE 8: Cleanup mejorado de procesos Puppeteer antes de quit
     app.on('before-quit', async (event) => {
         logToRenderer('info', 'main.js: App is quitting, cleaning up browser processes...');
 
@@ -411,31 +416,47 @@ if (!gotTheLock) {
             // Prevenir quit inmediato para dar tiempo al cleanup
             event.preventDefault();
 
-            // NUEVO: Enviar estado de cierre - Paso 1
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('update-closing-status', 'Deteniendo prevención de suspensión...');
+            // FASE 8: Sistema de cleanup con pasos ordenados y timeouts
+            const cleanupSteps = [
+                {
+                    name: 'Deteniendo prevención de suspensión...',
+                    fn: () => allowSystemSleep('App closing'),
+                    timeout: 2000
+                },
+                {
+                    name: 'Cerrando procesos de Chrome...',
+                    fn: () => whatsappLogic.forceReleaseChromeProcesses(),
+                    timeout: 15000
+                },
+                {
+                    name: 'Desconectando cliente de WhatsApp...',
+                    fn: () => whatsappLogic.destroyClientInstance(),
+                    timeout: 30000
+                }
+            ];
+
+            for (const step of cleanupSteps) {
+                // Enviar estado de cierre al renderer
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('update-closing-status', step.name);
+                }
+
+                try {
+                    // Ejecutar con timeout para evitar bloqueos
+                    await Promise.race([
+                        Promise.resolve(step.fn()),
+                        new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error(`Timeout: ${step.name}`)), step.timeout)
+                        )
+                    ]);
+                    logToRenderer('info', `main.js: Cleanup step completed: ${step.name}`);
+                } catch (stepError) {
+                    logToRenderer('warn', `main.js: Cleanup step failed/timeout: ${step.name}`, stepError.message);
+                    // Continuar con el siguiente paso aunque este falle
+                }
             }
 
-            // NUEVO: Permitir sleep del sistema antes de cerrar
-            allowSystemSleep('App closing');
-
-            // NUEVO: Enviar estado de cierre - Paso 2
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('update-closing-status', 'Cerrando procesos de Chrome...');
-            }
-
-            // Cleanup de procesos del bot
-            await whatsappLogic.forceReleaseChromeProcesses();
-
-            // NUEVO: Enviar estado de cierre - Paso 3
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('update-closing-status', 'Desconectando cliente de WhatsApp...');
-            }
-
-            // Destruir cliente de WhatsApp
-            await whatsappLogic.destroyClientInstance();
-
-            // NUEVO: Enviar estado de cierre - Paso 4
+            // Enviar estado final
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('update-closing-status', 'Finalizando aplicación...');
             }
@@ -443,7 +464,7 @@ if (!gotTheLock) {
             logToRenderer('info', 'main.js: Browser cleanup completed, quitting app...');
 
             // Dar un pequeño delay para que se muestre el último mensaje
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 300));
 
             // Permitir quit después del cleanup
             app.exit(0);
@@ -496,8 +517,12 @@ if (!gotTheLock) {
         logToRenderer(`main.js: update-campaign-config called with new config:`, newConfig);
         try {
             const updatedCampaign = whatsappLogic.updateActiveCampaignConfig(newConfig);
-            store.set('campaign', updatedCampaign);
-            return { success: true, campaign: updatedCampaign };
+            if (updatedCampaign) {
+                store.set('campaign', updatedCampaign);
+                return { success: true, campaign: updatedCampaign };
+            } else {
+                return { success: false, error: 'Cannot update config - campaign not paused' };
+            }
         } catch (error) {
             logToRenderer(`main.js: Error updating campaign config:`, error.message);
             return { success: false, error: error.message };
@@ -607,6 +632,12 @@ if (!gotTheLock) {
     // Clear all campaign data
     ipcMain.handle('clear-campaign-state', () => {
         logToRenderer('info', 'main.js: clear-campaign-state called.');
+        // First stop any active campaign to prevent the sending loop from continuing
+        const currentCampaign = whatsappLogic.getCampaignStatus();
+        if (currentCampaign.id && (currentCampaign.status === 'running' || currentCampaign.status === 'paused')) {
+            logToRenderer('info', `main.js: Stopping active campaign ${currentCampaign.id} before clearing.`);
+            whatsappLogic.stopSending(currentCampaign.id, 'new_campaign');
+        }
         whatsappLogic.clearCampaign();
         store.set('campaign', null);
         logToRenderer('info', 'main.js: Persisted campaign store cleared.');
@@ -1225,7 +1256,7 @@ if (!gotTheLock) {
             const templateData = [
                 {
                     item: '1',
-                    numero: '50255551234',
+                    numero: '50205551234',
                     nombre: 'Juan',
                     apellido: 'Pérez'
                 },

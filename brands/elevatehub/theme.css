@@ -1,6 +1,6 @@
-/* src/styles/theme.css - Modern Design System */
+/* ElevateHub Theme - Current WhatsApp-inspired Design */
 :root {
-  /* Brand Colors - WhatsApp Inspired */
+  /* Brand Colors - WhatsApp Inspired (Green) */
   --primary-color: #4CAF50;
   --primary-dark-color: #388E3C;
   --primary-light-color: #C8E6C9;
@@ -43,13 +43,13 @@
   --shadow-lg: 0 10px 15px rgba(0,0,0,0.08), 0 4px 6px rgba(0,0,0,0.05);
   --shadow-xl: 0 20px 25px rgba(0,0,0,0.10), 0 10px 10px rgba(0,0,0,0.04);
 
-  /* Border Radius - Modern Rounded */
+  /* Border Radius - Rounded */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 24px;
 
-  /* Spacing System - More Generous */
+  /* Spacing System */
   --spacing-unit: 12px;
   --spacing-xs: 4px;
   --spacing-sm: 8px;

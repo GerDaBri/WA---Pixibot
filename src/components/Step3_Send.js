@@ -380,7 +380,8 @@ function Step3_Send({ onBack, onNext, electronAPI, campaign, qrCodeData, session
         console.log("Step3_Send: Attempting to start sending.");
         if (electronAPI && campaign?.config && campaign.config.excelPath && sessionStatus === 'ready') {
             console.log("Step3_Send: Starting sending process.");
-            electronAPI.startSending(campaign.config);
+            // Only call onNext which handles startSending in App.js
+            // Do NOT call electronAPI.startSending here to avoid double invocation
             if (onNext) {
                 onNext();
             }

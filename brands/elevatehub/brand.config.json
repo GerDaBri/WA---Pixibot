@@ -22,5 +22,6 @@
     "logo": "logos/logo-elevatehub.png"
   },
   "title": "ElevateHub - Bot",
-  "theme": "elevatehub"
+  "theme": "elevatehub-classic",
+  "uiStyle": "classic"
 }

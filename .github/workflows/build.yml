@@ -140,6 +140,10 @@ jobs:
 
           Write-Host "📝 Generating brandConfig.js for React components..."
 
+          # Get theme and uiStyle with defaults
+          $theme = if ($brandConfig.theme) { $brandConfig.theme } else { "default" }
+          $uiStyle = if ($brandConfig.uiStyle) { $brandConfig.uiStyle } else { "classic" }
+
           # Create brandConfig.js content
           $content = "// This file is auto-generated during build by GitHub Actions workflow`n"
           $content += "// DO NOT EDIT MANUALLY - changes will be overwritten`n`n"
@@ -150,12 +154,41 @@ jobs:
           $content += "    title: '$($brandConfig.title)',`n"
           $content += "    description: '$($brandConfig.description)',`n"
           $content += "    version: '$($brandConfig.version)',`n"
+          $content += "    theme: '$theme',`n"
+          $content += "    uiStyle: '$uiStyle',`n"
           $content += "};`n`n"
           $content += "export default brandConfig;`n"
 
           # Write brandConfig.js to src/
           $content | Set-Content "src/brandConfig.js" -Encoding UTF8
           Write-Host "✓ Generated src/brandConfig.js for $($brandConfig.displayName)"
+          Write-Host "  - Theme: $theme"
+          Write-Host "  - UI Style: $uiStyle"
+
+      - name: Copy brand CSS theme files
+        run: |
+          $brandName = "${{ steps.extract_brand.outputs.brand_name }}"
+          $brandDir = "brands/$brandName"
+          $stylesDir = "src/styles"
+
+          Write-Host "🎨 Copying brand CSS theme files..."
+
+          # List of CSS files to copy
+          $cssFiles = @("main.css", "theme.css", "components.css")
+
+          foreach ($cssFile in $cssFiles) {
+            $brandCssPath = Join-Path $brandDir $cssFile
+            $targetCssPath = Join-Path $stylesDir $cssFile
+
+            if (Test-Path $brandCssPath) {
+              Copy-Item -Path $brandCssPath -Destination $targetCssPath -Force
+              Write-Host "✓ Copied brand $cssFile"
+            } else {
+              Write-Host "⚠ Brand CSS file not found: $brandCssPath (using default)"
+            }
+          }
+
+          Write-Host "✓ Brand theme files applied for $brandName"
 
       - name: Build webpack
         run: |

@@ -502,7 +502,7 @@ function Step2_Config({ onNext, onBack, electronAPI, initialConfig }) {
                     type="text"
                     value={countryCode}
                     onChange={(e) => setCountryCode(e.target.value)}
-                    placeholder="Ej: 502"
+                    placeholder="Ej: 504"
                   />
                   <div className={styles.inputDescription}>Código de área del país</div>
                 </div>

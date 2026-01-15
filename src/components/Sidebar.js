@@ -31,6 +31,7 @@ const useStyles = makeStyles({
         boxShadow: 'var(--shadow-lg)',
         position: 'relative',
         overflowY: 'auto',
+        borderRight: 'var(--sidebar-border, none)',
     },
     logoSection: {
         display: 'flex',
@@ -38,7 +39,7 @@ const useStyles = makeStyles({
         alignItems: 'center',
         ...shorthands.gap('var(--spacing-sm)'),
         ...shorthands.padding('var(--spacing-md)', 0),
-        ...shorthands.borderBottom('1px', 'solid', 'rgba(255, 255, 255, 0.1)'),
+        borderBottom: 'var(--card-border, 1px solid rgba(255, 255, 255, 0.1))',
         marginBottom: 'var(--spacing-lg)',
     },
     logo: {
@@ -56,7 +57,7 @@ const useStyles = makeStyles({
         marginBottom: 'var(--spacing-xl)',
     },
     sectionTitle: {
-        color: 'rgba(255, 255, 255, 0.6)',
+        color: 'var(--sidebar-section-title, rgba(255, 255, 255, 0.6))',
         fontSize: 'var(--font-size-xs)',
         fontWeight: 'var(--font-weight-semibold)',
         textTransform: 'uppercase',
@@ -103,12 +104,12 @@ const useStyles = makeStyles({
     stepCurrent: {
         backgroundColor: 'var(--primary-color)',
         color: 'white',
-        boxShadow: '0 0 0 4px rgba(76, 175, 80, 0.2)',
+        boxShadow: '0 0 0 4px rgba(var(--primary-rgb, 76, 175, 80), 0.2)',
     },
     stepPending: {
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        color: 'rgba(255, 255, 255, 0.5)',
-        ...shorthands.border('2px', 'dashed', 'rgba(255, 255, 255, 0.2)'),
+        backgroundColor: 'var(--sidebar-step-pending-bg, rgba(255, 255, 255, 0.1))',
+        color: 'var(--sidebar-step-pending-text, rgba(255, 255, 255, 0.5))',
+        border: 'var(--sidebar-step-pending-border, 2px dashed rgba(255, 255, 255, 0.2))',
     },
     stepLabel: {
         color: 'var(--sidebar-text)',
@@ -121,7 +122,7 @@ const useStyles = makeStyles({
         top: '44px',
         width: '2px',
         height: '32px',
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: 'var(--sidebar-step-pending-bg, rgba(255, 255, 255, 0.1))',
     },
     stepConnectorCompleted: {
         backgroundColor: 'var(--primary-color)',
@@ -129,8 +130,8 @@ const useStyles = makeStyles({
     whatsappStatus: {
         ...shorthands.padding('var(--spacing-md)'),
         ...shorthands.borderRadius('var(--radius-md)'),
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        ...shorthands.border('1px', 'solid', 'rgba(255, 255, 255, 0.1)'),
+        backgroundColor: 'var(--sidebar-hover)',
+        border: 'var(--card-border, 1px solid rgba(255, 255, 255, 0.1))',
     },
     statusRow: {
         display: 'flex',
@@ -153,8 +154,8 @@ const useStyles = makeStyles({
     licenseInfo: {
         ...shorthands.padding('var(--spacing-md)'),
         ...shorthands.borderRadius('var(--radius-md)'),
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        ...shorthands.border('1px', 'solid', 'rgba(255, 255, 255, 0.1)'),
+        backgroundColor: 'var(--sidebar-hover)',
+        border: 'var(--card-border, 1px solid rgba(255, 255, 255, 0.1))',
     },
     licenseRow: {
         display: 'flex',
@@ -167,7 +168,7 @@ const useStyles = makeStyles({
     },
     licenseIcon: {
         fontSize: 'var(--font-size-base)',
-        color: '#fff',
+        color: 'var(--sidebar-text)',
     },
     licenseText: {
         color: 'var(--sidebar-text)',

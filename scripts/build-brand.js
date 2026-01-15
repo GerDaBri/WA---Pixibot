@@ -6,6 +6,7 @@ const { execSync } = require('child_process');
 
 const BRANDS_DIR = path.join(__dirname, '..', 'brands');
 const SRC_DIR = path.join(__dirname, '..', 'src');
+const STYLES_DIR = path.join(SRC_DIR, 'styles');
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
 const PACKAGE_JSON = path.join(__dirname, '..', 'package.json');
 const BRAND_CONFIG_JS = path.join(SRC_DIR, 'brandConfig.js');
@@ -17,15 +18,15 @@ function backupFile(filePath, backupName) {
     if (fs.existsSync(filePath)) {
         const backupPath = `${filePath}.backup`;
         fs.copyFileSync(filePath, backupPath);
-        backupFiles[backupName] = backupPath;
+        backupFiles[backupName] = { original: filePath, backup: backupPath };
         console.log(`✓ Backed up ${filePath}`);
     }
 }
 
 function restoreFile(filePath, backupName) {
-    if (backupFiles[backupName] && fs.existsSync(backupFiles[backupName])) {
-        fs.copyFileSync(backupFiles[backupName], filePath);
-        fs.unlinkSync(backupFiles[backupName]);
+    if (backupFiles[backupName] && fs.existsSync(backupFiles[backupName].backup)) {
+        fs.copyFileSync(backupFiles[backupName].backup, filePath);
+        fs.unlinkSync(backupFiles[backupName].backup);
         console.log(`✓ Restored ${filePath}`);
     }
 }
@@ -55,6 +56,8 @@ export const brandConfig = {
     title: '${brandConfig.title}',
     description: '${brandConfig.description}',
     version: '${brandConfig.version}',
+    theme: '${brandConfig.theme || 'default'}',
+    uiStyle: '${brandConfig.uiStyle || 'classic'}',
 };
 
 export default brandConfig;
@@ -69,6 +72,11 @@ function applyBrandConfig(brandConfig) {
     backupFile(PACKAGE_JSON, 'package.json');
     backupFile(path.join(SRC_DIR, 'index.html'), 'index.html');
     backupFile(BRAND_CONFIG_JS, 'brandConfig.js');
+
+    // Backup style files for brand theming
+    backupFile(path.join(STYLES_DIR, 'main.css'), 'main.css');
+    backupFile(path.join(STYLES_DIR, 'theme.css'), 'theme.css');
+    backupFile(path.join(STYLES_DIR, 'components.css'), 'components.css');
 
     // Generate brand-specific configuration file for React components
     generateBrandConfigJS(brandConfig);
@@ -127,6 +135,20 @@ function applyBrandConfig(brandConfig) {
         fs.copyFileSync(brandIndexHtml, path.join(SRC_DIR, 'index.html'));
         console.log(`✓ Copied brand index.html for ${brandConfig.displayName}`);
     }
+
+    // Copy brand-specific CSS theme files
+    const brandThemeDir = path.join(BRANDS_DIR, brandConfig.name);
+    const cssFiles = ['main.css', 'theme.css', 'components.css'];
+
+    cssFiles.forEach(cssFile => {
+        const brandCssPath = path.join(brandThemeDir, cssFile);
+        const targetCssPath = path.join(STYLES_DIR, cssFile);
+
+        if (fs.existsSync(brandCssPath)) {
+            fs.copyFileSync(brandCssPath, targetCssPath);
+            console.log(`✓ Copied brand ${cssFile} for ${brandConfig.displayName}`);
+        }
+    });
 }
 
 function buildBrand() {
@@ -181,6 +203,12 @@ function main() {
         restoreFile(PACKAGE_JSON, 'package.json');
         restoreFile(path.join(SRC_DIR, 'index.html'), 'index.html');
         restoreFile(BRAND_CONFIG_JS, 'brandConfig.js');
+
+        // Restore CSS files
+        restoreFile(path.join(STYLES_DIR, 'main.css'), 'main.css');
+        restoreFile(path.join(STYLES_DIR, 'theme.css'), 'theme.css');
+        restoreFile(path.join(STYLES_DIR, 'components.css'), 'components.css');
+
         console.log('✓ Original files restored');
     }
 }

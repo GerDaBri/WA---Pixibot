@@ -1,0 +1,85 @@
+/* Pixibot Main Layout - Modern Minimalist */
+/* Load Inter font for modern look */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('./theme.css');
+@import url('./components.css');
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  background: var(--background-color);
+  color: var(--text-color-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.app-main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background-color);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-xl);
+  background-color: var(--surface-color);
+  border-bottom: var(--border-style);
+  box-shadow: none;
+  z-index: var(--z-sticky);
+  min-height: 56px;
+}
+
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.app-header-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-color-primary);
+  margin: 0;
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-xl);
+  background: var(--background-gradient);
+}
+
+/* Scrollbar Styling - Minimal */
+.app-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.app-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.app-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}

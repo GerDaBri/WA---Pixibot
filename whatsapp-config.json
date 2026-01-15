@@ -1,5 +1,8 @@
 {
-  "headless": true,
+  "browser": "auto",
+  "headless": "new",
+  "disableGoogleUpdate": true,
+  "browserPriority": ["chrome-64", "chrome-32", "puppeteer-chromium"],
   "puppeteerArgs": [
     "--no-sandbox",
     "--disable-setuid-sandbox",
@@ -12,8 +15,41 @@
     "--disable-gpu-sandbox",
     "--disable-software-rasterizer",
     "--shm-size=1gb",
-    "--disable-web-security",
-    "--disable-features=VizDisplayCompositor"
+    "--disable-features=VizDisplayCompositor,OptimizationGuideModelDownloading,OptimizationHintsFetching,OptimizationTargetPrediction,OptimizationHints",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-default-apps",
+    "--disable-extensions",
+    "--disable-sync",
+    "--disable-translate",
+    "--metrics-recording-only",
+    "--no-default-browser-check",
+    "--safebrowsing-disable-auto-update",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-background-timer-throttling",
+    "--disable-ipc-flooding-protection",
+    "--password-store=basic",
+    "--disable-popup-blocking",
+    "--disable-prompt-on-repost",
+    "--disable-domain-reliability",
+    "--disable-client-side-phishing-detection",
+    "--disable-hang-monitor",
+    "--no-pings",
+    "--mute-audio"
   ],
-  "executablePath": null
+  "executablePath": null,
+  "timeouts": {
+    "initialization": 120000,
+    "destroy": 30000,
+    "messageSend": 30000,
+    "qrGeneration": 60000,
+    "browserClose": 10000
+  },
+  "retries": {
+    "initialization": 3,
+    "messageSend": 3,
+    "reconnection": 5
+  }
 }

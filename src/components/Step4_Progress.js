@@ -324,13 +324,13 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
             return null;
         }
 
-        if (countdownState.type === 'pausing' && countdownState.remainingTime > 0) {
+        if (countdownState.type === 'pausing') {
             return (
                 <>
                     <PauseCircle20Regular /> Pausa automática: {formatTime(countdownState.remainingTime)}
                 </>
             );
-        } else if (countdownState.type === 'sending' || countdownState.remainingTime <= 0) {
+        } else if (countdownState.type === 'sending') {
             return (
                 <>
                     <Send20Regular /> Enviando mensajes
@@ -703,7 +703,7 @@ const Step4_Progress = ({ campaign, onPause, onResume, logs, onStartNew, session
                                         value={advancedConfig.countryCode ?? ''}
                                         onChange={handleConfigChange}
                                         disabled={!isPaused}
-                                        placeholder="Ej: 502"
+                                        placeholder="Ej: 504"
                                     />
                                 </div>
                             </div>

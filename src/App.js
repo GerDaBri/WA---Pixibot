@@ -81,11 +81,19 @@ function App() {
                 console.log("App.js: 'auth-failure' event received - changing sessionStatus from", sessionStatus, "to 'auth_failure'");
                 setSessionStatus('auth_failure');
             });
-            window.electronAPI.on('disconnected', () => {
-                console.log("App.js: 'disconnected' event received - auto-reconnecting");
+            window.electronAPI.on('disconnected', (reason) => {
+                console.log("App.js: 'disconnected' event received with reason:", reason);
                 setQrCodeData(''); // Clear previous QR code
-                handleReconnect(); // Automatically reconnect
-                setSessionStatus('initializing'); // Set to initializing to show spinner
+
+                // Don't auto-reconnect on LOGOUT - user needs to scan QR again
+                if (reason === 'LOGOUT') {
+                    console.log("App.js: LOGOUT detected - not auto-reconnecting, user must re-authenticate");
+                    setSessionStatus('auth_failure');
+                } else {
+                    console.log("App.js: Auto-reconnecting after disconnect");
+                    handleReconnect(); // Automatically reconnect
+                    setSessionStatus('initializing'); // Set to initializing to show spinner
+                }
             });
 
             window.electronAPI.on('browser-closed', (message) => {
