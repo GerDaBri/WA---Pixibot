@@ -699,6 +699,42 @@ if (!gotTheLock) {
         }
     });
 
+    // --- Connection Health Check Handlers ---
+
+    // Check connection health and reconnect if needed (useful after system resume)
+    ipcMain.handle('check-and-reconnect', async () => {
+        const timestamp = new Date().toISOString();
+        try {
+            console.log(`[${timestamp}] main.js: >>>>>> CHECK-AND-RECONNECT IPC HANDLER <<<<<<`);
+            logToRenderer('info', 'main.js: check-and-reconnect IPC called');
+            const isHealthy = await whatsappLogic.checkAndReconnectIfNeeded();
+            console.log(`[${timestamp}] main.js: Health check result: ${isHealthy ? 'HEALTHY' : 'RECONNECTING'}`);
+            logToRenderer('info', `main.js: Connection health check result: ${isHealthy ? 'healthy' : 'reconnecting'}`);
+            return { success: true, isHealthy };
+        } catch (error) {
+            console.error(`[${timestamp}] main.js: Error in check-and-reconnect: ${error.message}`);
+            logToRenderer('error', 'main.js: Error in check-and-reconnect:', error.message);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Force reconnection to WhatsApp (useful after system resume from sleep)
+    ipcMain.handle('force-reconnect', async () => {
+        const timestamp = new Date().toISOString();
+        try {
+            console.log(`[${timestamp}] main.js: >>>>>> FORCE-RECONNECT IPC HANDLER <<<<<<`);
+            logToRenderer('info', 'main.js: force-reconnect IPC called');
+            await whatsappLogic.forceReconnect();
+            console.log(`[${timestamp}] main.js: Force reconnect initiated successfully`);
+            logToRenderer('info', 'main.js: Force reconnect initiated');
+            return { success: true };
+        } catch (error) {
+            console.error(`[${timestamp}] main.js: Error in force-reconnect: ${error.message}`);
+            logToRenderer('error', 'main.js: Error in force-reconnect:', error.message);
+            return { success: false, error: error.message };
+        }
+    });
+
     // --- License Management Handlers ---
 
     // Login user with server

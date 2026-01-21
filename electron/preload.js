@@ -20,6 +20,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     resetLicenseData: () => ipcRenderer.invoke('reset-license-data'),
     recalculateDaysRemaining: () => ipcRenderer.invoke('recalculate-days-remaining'),
 
+    // Connection health check (for after system resume)
+    checkAndReconnect: () => ipcRenderer.invoke('check-and-reconnect'),
+    forceReconnect: () => ipcRenderer.invoke('force-reconnect'),
+
     // File system
     openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
     saveFileDialog: () => ipcRenderer.invoke('save-file-dialog'),

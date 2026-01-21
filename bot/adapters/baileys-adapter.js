@@ -779,6 +779,74 @@ class BaileysAdapter extends BaseWhatsAppAdapter {
             return null;
         }
     }
+
+    /**
+     * Set external logger for file logging
+     * @param {object} externalLogger - Winston logger instance
+     */
+    setExternalLogger(externalLogger) {
+        this.externalLogger = externalLogger;
+        console.log('baileys-adapter: External logger attached');
+    }
+
+    /**
+     * Check connection health and reconnect if needed
+     * @returns {Promise<boolean>} - True if connection is healthy
+     */
+    async checkAndReconnect() {
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] baileys-adapter: >>>>>> CHECK AND RECONNECT CALLED <<<<<<`);
+
+        // Check if we have a socket and it's connected
+        if (!this.sock) {
+            console.log(`[${timestamp}] baileys-adapter: No socket - not healthy`);
+            this.externalLogger?.info('Baileys Adapter: No socket available');
+            return false;
+        }
+
+        if (this.connectionState !== 'connected') {
+            console.log(`[${timestamp}] baileys-adapter: Not connected (state: ${this.connectionState}) - attempting reconnect`);
+            this.externalLogger?.info(`Baileys Adapter: Not connected (${this.connectionState}), reconnecting...`);
+
+            // Attempt to reconnect
+            try {
+                await this._reconnect();
+                // Wait a bit for connection to establish
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                const isNowConnected = this.connectionState === 'connected';
+                console.log(`[${timestamp}] baileys-adapter: Reconnect result - connected: ${isNowConnected}`);
+                return isNowConnected;
+            } catch (error) {
+                console.error(`[${timestamp}] baileys-adapter: Reconnect failed: ${error.message}`);
+                this.externalLogger?.error(`Baileys Adapter: Reconnect failed: ${error.message}`);
+                return false;
+            }
+        }
+
+        console.log(`[${timestamp}] baileys-adapter: Connection is healthy`);
+        this.externalLogger?.info('Baileys Adapter: Connection is healthy');
+        return true;
+    }
+
+    /**
+     * Force reconnection to WhatsApp
+     * @returns {Promise<void>}
+     */
+    async forceReconnect() {
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] baileys-adapter: >>>>>> FORCE RECONNECT CALLED <<<<<<`);
+        this.externalLogger?.info('Baileys Adapter: Force reconnect initiated');
+
+        // Reset reconnect attempts to allow fresh reconnection
+        this.reconnectAttempts = 0;
+
+        // Perform reconnection
+        await this._reconnect();
+
+        console.log(`[${timestamp}] baileys-adapter: Force reconnect initiated successfully`);
+        this.externalLogger?.info('Baileys Adapter: Force reconnect completed');
+    }
 }
 
 module.exports = BaileysAdapter;

@@ -459,39 +459,59 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
         logger?.info(`${logPrefix}: Creating new Baileys adapter`);
         adapter = createAdapter('baileys');
 
+        // Attach Winston logger to adapter for file logging
+        if (logger && adapter && typeof adapter.setExternalLogger === 'function') {
+            adapter.setExternalLogger(logger);
+            logger.info(`${logPrefix}: Winston logger attached to Baileys adapter`);
+        }
+
         // Pass QR code directly - main.js handles conversion to data URL
         const wrappedOnQrCode = (qr) => {
+            const timestamp = new Date().toISOString();
             logger?.info(`${logPrefix}: QR code received from Baileys`);
+            console.log(`[${timestamp}] whatsapp-logic: >>>>>> QR CODE EVENT RECEIVED FROM BAILEYS <<<<<<`);
+            console.log(`[${timestamp}] whatsapp-logic: QR length: ${qr?.length || 0}`);
+            console.log(`[${timestamp}] whatsapp-logic: Forwarding QR to main.js callback`);
             // Pass raw QR string to main.js which will convert it to data URL
             if (onQrCode) onQrCode(qr);
         };
 
         // Wrap ready callback
         const wrappedOnClientReady = () => {
+            const timestamp = new Date().toISOString();
             logger?.info(`${logPrefix}: Client is ready`);
-            console.log("whatsapp-logic: Client is ready!");
+            console.log(`[${timestamp}] whatsapp-logic: >>>>>> CLIENT READY EVENT RECEIVED <<<<<<`);
+            console.log(`[${timestamp}] whatsapp-logic: Client is ready! Notifying main.js`);
 
             isClientInitializing = false;
             initializationStartTime = null;
 
             if (resolveClientReady) {
+                console.log(`[${timestamp}] whatsapp-logic: Resolving clientReadyPromise`);
                 resolveClientReady();
             }
 
-            if (onClientReady) onClientReady();
+            if (onClientReady) {
+                console.log(`[${timestamp}] whatsapp-logic: Calling onClientReady callback`);
+                onClientReady();
+            }
         };
 
         // Wrap disconnected callback
         const wrappedOnDisconnected = (reason) => {
+            const timestamp = new Date().toISOString();
             logger?.info(`${logPrefix}: Client disconnected. Reason: ${reason}`);
-            console.log(`whatsapp-logic: Client disconnected. Reason: ${reason}`);
+            console.log(`[${timestamp}] whatsapp-logic: >>>>>> CLIENT DISCONNECTED EVENT RECEIVED <<<<<<`);
+            console.log(`[${timestamp}] whatsapp-logic: Disconnect reason: ${reason}`);
 
             // Reset initialization state so new initialization can proceed
             isClientInitializing = false;
             initializationStartTime = null;
+            console.log(`[${timestamp}] whatsapp-logic: Initialization state reset`);
 
             // Reject pending promise if exists (to unblock any waiters)
             if (rejectClientReady) {
+                console.log(`[${timestamp}] whatsapp-logic: Rejecting clientReadyPromise due to disconnect`);
                 rejectClientReady(new Error(`Disconnected: ${reason}`));
                 rejectClientReady = null;
                 resolveClientReady = null;
@@ -500,11 +520,15 @@ async function initializeClient(dataPath, onQrCode, onClientReady, onDisconnecte
             // If campaign is running, pause it
             if (campaignState.status === 'running') {
                 logger?.info(`${logPrefix}: Pausing campaign due to disconnection`);
+                console.log(`[${timestamp}] whatsapp-logic: Pausing campaign due to disconnection`);
                 campaignState.status = 'paused';
                 notifyProgress();
             }
 
-            if (onDisconnected) onDisconnected(reason);
+            if (onDisconnected) {
+                console.log(`[${timestamp}] whatsapp-logic: Calling onDisconnected callback`);
+                onDisconnected(reason);
+            }
         };
 
         // Wrap auth failure callback
@@ -1294,6 +1318,91 @@ async function softLogoutAndReinitialize(dataPath, onQrCode, onClientReady, onDi
 }
 
 /**
+ * Check connection health and reconnect if needed
+ * Useful to call after system resume from suspension
+ * @returns {Promise<boolean>} - True if connection is healthy
+ */
+async function checkAndReconnectIfNeeded() {
+    const logPrefix = 'Check & Reconnect';
+    const timestamp = new Date().toISOString();
+    logger?.info(`${logPrefix}: Checking connection health...`);
+    console.log(`[${timestamp}] whatsapp-logic: >>>>>> CHECK AND RECONNECT IF NEEDED CALLED <<<<<<`);
+    console.log(`[${timestamp}] whatsapp-logic: adapter exists: ${!!adapter}`);
+
+    if (!adapter) {
+        logger?.info(`${logPrefix}: No adapter available`);
+        console.log(`[${timestamp}] whatsapp-logic: No adapter available, returning false`);
+        return false;
+    }
+
+    try {
+        console.log(`[${timestamp}] whatsapp-logic: Calling adapter.checkAndReconnect()...`);
+        // Check if adapter has checkAndReconnect method
+        if (typeof adapter.checkAndReconnect === 'function') {
+            const isHealthy = await adapter.checkAndReconnect();
+            logger?.info(`${logPrefix}: Connection health check result: ${isHealthy ? 'healthy' : 'reconnecting'}`);
+            console.log(`[${timestamp}] whatsapp-logic: Health check result: ${isHealthy ? 'HEALTHY' : 'RECONNECTING'}`);
+            return isHealthy;
+        } else {
+            // Fallback: check if authenticated
+            const isHealthy = adapter.isAuthenticated();
+            logger?.info(`${logPrefix}: Fallback health check (isAuthenticated): ${isHealthy}`);
+            console.log(`[${timestamp}] whatsapp-logic: Fallback health check result: ${isHealthy ? 'HEALTHY' : 'NOT AUTHENTICATED'}`);
+            return isHealthy;
+        }
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error during health check: ${error.message}`);
+        console.error(`[${timestamp}] whatsapp-logic: Error during health check: ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Force reconnection to WhatsApp
+ * Useful after system resume from sleep/suspend
+ * @returns {Promise<void>}
+ */
+async function forceReconnect() {
+    const logPrefix = 'Force Reconnect';
+    const timestamp = new Date().toISOString();
+    logger?.info(`${logPrefix}: Force reconnect requested...`);
+    console.log(`[${timestamp}] whatsapp-logic: >>>>>> FORCE RECONNECT CALLED <<<<<<`);
+    console.log(`[${timestamp}] whatsapp-logic: adapter exists: ${!!adapter}`);
+
+    if (!adapter) {
+        logger?.info(`${logPrefix}: No adapter available, cannot reconnect`);
+        console.log(`[${timestamp}] whatsapp-logic: No adapter available, cannot reconnect`);
+        return;
+    }
+
+    try {
+        console.log(`[${timestamp}] whatsapp-logic: Calling adapter.forceReconnect()...`);
+        // Check if adapter has forceReconnect method
+        if (typeof adapter.forceReconnect === 'function') {
+            await adapter.forceReconnect();
+            logger?.info(`${logPrefix}: Force reconnect initiated`);
+            console.log(`[${timestamp}] whatsapp-logic: Force reconnect initiated successfully`);
+        } else {
+            // Fallback: destroy and let main.js reinitialize
+            logger?.warn(`${logPrefix}: Adapter does not support forceReconnect, destroying client`);
+            console.log(`[${timestamp}] whatsapp-logic: Adapter does not support forceReconnect, destroying client`);
+            await destroyClientInstance();
+        }
+    } catch (error) {
+        logger?.error(`${logPrefix}: Error during force reconnect: ${error.message}`);
+        console.error(`[${timestamp}] whatsapp-logic: Error during force reconnect: ${error.message}`);
+    }
+}
+
+/**
+ * Get the current logger instance for external modules (like baileys-adapter)
+ * @returns {object|null} - Winston logger instance or null if not initialized
+ */
+function getLogger() {
+    return logger;
+}
+
+/**
  * Validate client closure
  */
 async function validateClientClosure() {
@@ -1474,6 +1583,12 @@ module.exports = {
     notifyCountdown,
     processMessageVariables,
     sendCampaignStartNotification,
+    // Connection health check and reconnection
+    checkAndReconnectIfNeeded,
+    forceReconnect,
+    // Logger access for external modules
+    getLogger,
+    initializeLogger,
     // Legacy compatibility (Puppeteer-related, now no-ops)
     safeLogoutWithEBUSYHandling,
     forceReleaseChromeProcesses,

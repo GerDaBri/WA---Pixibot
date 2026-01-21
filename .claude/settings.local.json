@@ -15,7 +15,8 @@
       "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\GB\\\\AppData\\\\Roaming'' | Where-Object { $_Name -like ''*whatsapp*'' -or $_Name -like ''*pixibot*'' } | Select-Object Name\")",
       "Bash(dir:*)",
       "Bash(findstr:*)",
-      "Bash(cmd /c \"dir C:\\\\Users\\\\GB\\\\AppData\\\\Roaming /b\")"
+      "Bash(cmd /c \"dir C:\\\\Users\\\\GB\\\\AppData\\\\Roaming /b\")",
+      "Bash(git log:*)"
     ]
   }
 }
