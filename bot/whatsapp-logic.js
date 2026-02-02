@@ -253,6 +253,7 @@ function notifyCountdown(remainingTime, totalTime) {
 
 /**
  * Controlled delay with countdown notifications
+ * Includes periodic connection health checks during long pauses
  * @param {number} delayMs - Delay in milliseconds
  * @param {string} type - Type of delay ('send' or 'pause')
  * @param {string} campaignId - ID of the campaign that started this delay (for validation)
@@ -265,6 +266,8 @@ async function controlledDelay(delayMs, type = 'send', campaignId = null) {
 
     const startTime = Date.now();
     const endTime = startTime + delayMs;
+    let lastConnectionCheck = Date.now();
+    const CONNECTION_CHECK_INTERVAL = 60000; // Check connection every 60 seconds during pauses
 
     while (Date.now() < endTime) {
         // Check for stopping
@@ -302,6 +305,34 @@ async function controlledDelay(delayMs, type = 'send', campaignId = null) {
             return false;
         }
 
+        // Periodic connection health check during long pauses
+        const timeSinceLastCheck = Date.now() - lastConnectionCheck;
+        if (type === 'pause' && timeSinceLastCheck >= CONNECTION_CHECK_INTERVAL) {
+            lastConnectionCheck = Date.now();
+
+            if (adapter && typeof adapter.verifyConnectionAlive === 'function') {
+                const isAlive = await adapter.verifyConnectionAlive();
+                if (!isAlive) {
+                    logger?.warn('controlledDelay: Connection not alive during pause, attempting silent reconnect');
+                    console.log('whatsapp-logic: Connection lost during pause, attempting to restore...');
+
+                    // Try to restore connection silently
+                    if (typeof adapter.ensureConnectionReady === 'function') {
+                        const restored = await adapter.ensureConnectionReady(30000);
+                        if (restored) {
+                            logger?.info('controlledDelay: Connection restored during pause');
+                            console.log('whatsapp-logic: Connection restored successfully during pause');
+                        } else {
+                            logger?.error('controlledDelay: Failed to restore connection during pause');
+                            console.log('whatsapp-logic: Failed to restore connection - will retry before sending');
+                        }
+                    }
+                } else {
+                    logger?.info('controlledDelay: Connection health check passed during pause');
+                }
+            }
+        }
+
         const remaining = endTime - Date.now();
         notifyCountdown(remaining, delayMs);
 
@@ -310,6 +341,20 @@ async function controlledDelay(delayMs, type = 'send', campaignId = null) {
     }
 
     notifyCountdown(0, delayMs);
+
+    // Final connection verification before returning (pause is about to end)
+    if (type === 'pause' && adapter && typeof adapter.verifyConnectionAlive === 'function') {
+        const isReady = await adapter.verifyConnectionAlive();
+        if (!isReady) {
+            logger?.warn('controlledDelay: Connection not ready at end of pause, ensuring connection...');
+            console.log('whatsapp-logic: Connection check failed at end of pause, restoring...');
+
+            if (typeof adapter.ensureConnectionReady === 'function') {
+                await adapter.ensureConnectionReady(30000);
+            }
+        }
+    }
+
     return true;
 }
 
@@ -639,16 +684,34 @@ function isSessionClosedError(error) {
 
 /**
  * Send message with retries
+ * Now includes automatic silent reconnection attempt on session closed errors
  */
 async function sendMessageWithRetries(phoneNumber, message, mediaPath = null, maxRetries = 3, initialTimeout = 30000, countryCode = '') {
     const logPrefix = `Send Message (${phoneNumber.toString().substring(0, 10)}...)`;
     let lastError;
     let sessionClosed = false;
+    let reconnectAttempted = false;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const timeout = Math.floor(initialTimeout * (1 + (attempt - 1) * 0.5));
             logger?.info(`${logPrefix}: Intento ${attempt}/${maxRetries} con timeout de ${timeout}ms`);
+
+            // Before first attempt, verify connection is ready
+            if (attempt === 1 && adapter && typeof adapter.verifyConnectionAlive === 'function') {
+                const isAlive = await adapter.verifyConnectionAlive();
+                if (!isAlive) {
+                    logger?.warn(`${logPrefix}: Connection not alive before send, attempting to restore...`);
+                    if (typeof adapter.ensureConnectionReady === 'function') {
+                        const restored = await adapter.ensureConnectionReady(30000);
+                        if (!restored) {
+                            logger?.error(`${logPrefix}: Failed to restore connection before send`);
+                            throw new Error('WhatsApp client is not connected');
+                        }
+                        logger?.info(`${logPrefix}: Connection restored, proceeding with send`);
+                    }
+                }
+            }
 
             let sendPromise;
 
@@ -666,6 +729,11 @@ async function sendMessageWithRetries(phoneNumber, message, mediaPath = null, ma
                 )
             ]);
 
+            // Update adapter activity on successful send
+            if (adapter && typeof adapter.updateActivity === 'function') {
+                adapter.updateActivity();
+            }
+
             if (attempt > 1) {
                 logger?.info(`${logPrefix}: Mensaje enviado exitosamente después de ${attempt} intentos`);
             }
@@ -678,6 +746,26 @@ async function sendMessageWithRetries(phoneNumber, message, mediaPath = null, ma
 
             // Detect session closed error
             if (isSessionClosedError(error)) {
+                // Try to reconnect silently before giving up
+                if (!reconnectAttempted && adapter && typeof adapter.ensureConnectionReady === 'function') {
+                    reconnectAttempted = true;
+                    logger?.info(`${logPrefix}: Session closed detected, attempting silent reconnection...`);
+                    console.log(`whatsapp-logic: ${logPrefix} - Attempting silent reconnection...`);
+
+                    const reconnected = await adapter.ensureConnectionReady(45000);
+
+                    if (reconnected) {
+                        logger?.info(`${logPrefix}: Silent reconnection successful, retrying send...`);
+                        console.log(`whatsapp-logic: ${logPrefix} - Reconnection successful, retrying...`);
+                        // Don't count this as an attempt, continue to retry
+                        attempt--;
+                        continue;
+                    } else {
+                        logger?.error(`${logPrefix}: Silent reconnection failed`);
+                        console.log(`whatsapp-logic: ${logPrefix} - Silent reconnection failed`);
+                    }
+                }
+
                 sessionClosed = true;
                 logger?.error(`${logPrefix}: SESSION CLOSED DETECTED - No point in retrying`);
                 break;

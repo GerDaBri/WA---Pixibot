@@ -188,6 +188,16 @@ const useStyles = makeStyles({
     daysExpired: {
         color: 'var(--color-error)',
     },
+    versionContainer: {
+        marginTop: 'auto',
+        paddingTop: 'var(--spacing-lg)',
+        borderTop: 'var(--card-border, 1px solid rgba(255, 255, 255, 0.1))',
+        textAlign: 'center',
+    },
+    versionText: {
+        color: 'var(--sidebar-section-title, rgba(255, 255, 255, 0.6))',
+        fontSize: 'var(--font-size-xs)',
+    },
 });
 
 const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
@@ -310,6 +320,11 @@ const Sidebar = ({ currentStep, sessionStatus, licenseDetails, userData }) => {
                     </div>
                 </div>
             )}
+
+            {/* Version Info */}
+            <div className={styles.versionContainer}>
+                <Text className={styles.versionText}>v{brandConfig.version}</Text>
+            </div>
         </div>
     );
 };

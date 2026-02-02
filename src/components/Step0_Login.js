@@ -131,6 +131,14 @@ const useStyles = makeStyles({
         backgroundColor: 'rgba(40, 167, 69, 0.1)',
         ...shorthands.border('1px', 'solid', 'rgba(40, 167, 69, 0.2)'),
     },
+    versionText: {
+        position: 'absolute',
+        bottom: 'var(--spacing-lg)',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        fontSize: 'var(--font-size-xs)',
+        color: 'var(--text-color-muted)',
+    },
 });
 
 function Step0_Login({ onLoginSuccess }) {
@@ -277,6 +285,9 @@ function Step0_Login({ onLoginSuccess }) {
                     </button>
                 </form>
             </div>
+
+            {/* Version */}
+            <Text className={styles.versionText}>v{brandConfig.version}</Text>
 
             {/* Animations CSS */}
             <style>{`

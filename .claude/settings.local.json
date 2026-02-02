@@ -16,7 +16,9 @@
       "Bash(dir:*)",
       "Bash(findstr:*)",
       "Bash(cmd /c \"dir C:\\\\Users\\\\GB\\\\AppData\\\\Roaming /b\")",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(tree:*)",
+      "Bash(npm run webpack-build:*)"
     ]
   }
 }
