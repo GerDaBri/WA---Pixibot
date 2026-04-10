@@ -42,6 +42,63 @@ const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi'];
 // Audio extensions
 const AUDIO_EXTENSIONS = ['.mp3', '.ogg', '.wav'];
 
+// Updated fallback version - must be kept current when WhatsApp rejects old versions (405)
+// Source: https://github.com/WhiskeySockets/Baileys/blob/master/src/Defaults/index.ts
+const FALLBACK_WA_VERSION = [2, 3000, 1035194821];
+
+/**
+ * Fetch the latest WhatsApp Web version with multiple fallback sources.
+ * Order: 1) WhatsApp sw.js (direct) → 2) Baileys GitHub repo → 3) Hardcoded fallback
+ * @param {object} [logger] - Optional Winston logger for persistent logging
+ * @returns {Promise<{version: number[], source: string}>}
+ */
+async function fetchWAVersion(logger) {
+    const log = (level, msg) => {
+        console.log(msg);
+        if (logger) logger[level]?.(msg);
+    };
+
+    // Source 1: Fetch directly from WhatsApp Web service worker
+    try {
+        const response = await fetch('https://web.whatsapp.com/sw.js', {
+            method: 'GET',
+            headers: {
+                'sec-fetch-site': 'none',
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+            },
+            signal: AbortSignal.timeout(10000)
+        });
+
+        if (response.ok) {
+            const data = await response.text();
+            const match = data.match(/client_revision[\\\"]*:\s*(\d+)/);
+            if (match?.[1]) {
+                const revision = parseInt(match[1]);
+                const version = [2, 3000, revision];
+                log('info', `fetchWAVersion: Got version from WhatsApp sw.js: ${version.join('.')}`);
+                return { version, source: 'whatsapp-sw.js' };
+            }
+        }
+    } catch (err) {
+        log('warn', `fetchWAVersion: Could not fetch from WhatsApp sw.js: ${err.message}`);
+    }
+
+    // Source 2: Fetch from Baileys GitHub repository (what fetchLatestBaileysVersion does)
+    try {
+        const versionInfo = await fetchLatestBaileysVersion();
+        if (versionInfo?.version?.length === 3) {
+            log('info', `fetchWAVersion: Got version from Baileys repo: ${versionInfo.version.join('.')}`);
+            return { version: versionInfo.version, source: 'baileys-repo' };
+        }
+    } catch (err) {
+        log('warn', `fetchWAVersion: Could not fetch from Baileys repo: ${err.message}`);
+    }
+
+    // Source 3: Hardcoded fallback (updated periodically)
+    log('warn', `fetchWAVersion: All sources failed, using hardcoded fallback: ${FALLBACK_WA_VERSION.join('.')}`);
+    return { version: [...FALLBACK_WA_VERSION], source: 'fallback' };
+}
+
 class BaileysAdapter extends BaseWhatsAppAdapter {
     constructor() {
         super();
@@ -61,6 +118,7 @@ class BaileysAdapter extends BaseWhatsAppAdapter {
         this.silentReconnectInProgress = false; // Track silent reconnection attempts
         this.wasEverAuthenticated = false; // Track if we ever had a successful authentication
         this.lastKnownUserId = null; // Store the last known user ID for recovery
+        this._logoutRecoveryAttempted = false; // Prevent infinite logout recovery loops
         // Logger with info level to see connection details and important messages
         // Filter out noise from multi-device sync (doesn't affect sending)
         const SILENCED_MESSAGES = [
@@ -131,26 +189,10 @@ class BaileysAdapter extends BaseWhatsAppAdapter {
 
         this.connectionState = 'connecting';
 
-        // Get latest Baileys version info
-        // Use a known working version as fallback to avoid 405 errors
-        const FALLBACK_VERSION = [2, 3000, 1027934701];
-        let version;
-        try {
-            const versionInfo = await fetchLatestBaileysVersion();
-            version = versionInfo.version;
-            console.log(`baileys-adapter: Fetched WA version ${version.join('.')}`);
-        } catch (err) {
-            console.log('baileys-adapter: Could not fetch latest version, using fallback');
-            version = FALLBACK_VERSION;
-        }
-
-        // Always ensure we have a version to avoid connection issues
-        if (!version || version.length !== 3) {
-            console.log('baileys-adapter: Invalid version, using fallback');
-            version = FALLBACK_VERSION;
-        }
-        console.log(`baileys-adapter: Using WA version ${version.join('.')}`);
-
+        // Fetch WhatsApp Web version with multiple fallback sources
+        const { version, source } = await fetchWAVersion(this.externalLogger);
+        console.log(`baileys-adapter: Using WA version ${version.join('.')} (source: ${source})`);
+        this.externalLogger?.info(`Baileys Adapter: Using WA version ${version.join('.')} (source: ${source})`);
 
         // Create WhatsApp socket with proper configuration
         const socketConfig = {
@@ -433,29 +475,52 @@ class BaileysAdapter extends BaseWhatsAppAdapter {
                     return;
                 }
 
-                // PROTECTION: If we were authenticated before, don't clear without checking disk
-                if (this.wasEverAuthenticated && hasCredsOnDisk) {
-                    console.log('baileys-adapter: WARNING - Logout received but we have valid creds on disk!');
-                    console.log('baileys-adapter: This might be a false logout signal, attempting recovery...');
-                    this.externalLogger?.warn('Baileys Adapter: Suspicious logout with valid disk creds, attempting recovery');
+                // Detect if this is a CONFIRMED logout (conflict = user closed session from phone/other device)
+                // vs a potentially transient 401 (network issues, temporary server errors)
+                const isConfirmedLogout = errorMessage.toLowerCase().includes('conflict');
 
-                    // Try to restore and reconnect instead of clearing
+                if (isConfirmedLogout) {
+                    // CONFIRMED LOGOUT: "conflict" means WhatsApp explicitly revoked the session.
+                    // No point retrying - accept immediately and let the app generate a new QR.
+                    console.log('baileys-adapter: CONFIRMED logout (conflict) - session revoked by WhatsApp');
+                    this.externalLogger?.info('Baileys Adapter: Confirmed logout (conflict detected), clearing session for new QR');
+                    this._logoutRecoveryAttempted = false;
+                    this.clientInfo = null;
+                    this.qrShownButNotScanned = false;
+                    this._clearSession();
+                    this.emit('auth_failure', 'LOGOUT');
+                    this.emit('disconnected', 'LOGOUT');
+                    return;
+                }
+
+                // AMBIGUOUS 401: Could be transient (network instability, temporary WhatsApp error).
+                // Try recovery with up to maxReconnectAttempts to avoid forcing re-auth on flaky networks.
+                if (this.wasEverAuthenticated && hasCredsOnDisk && this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    console.log(`baileys-adapter: Ambiguous 401 with valid creds, recovery attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
+                    this.externalLogger?.warn(`Baileys Adapter: Ambiguous 401, recovery attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+
+                    const delay = 3000 * this.reconnectAttempts;
                     setTimeout(async () => {
                         if (!this.isDestroying) {
                             const restored = await this._silentReconnect();
-                            if (!restored) {
-                                console.log('baileys-adapter: Recovery failed, clearing session');
+                            if (!restored && this.reconnectAttempts >= this.maxReconnectAttempts) {
+                                console.log('baileys-adapter: All recovery attempts failed, accepting logout');
+                                this.externalLogger?.info('Baileys Adapter: Max recovery attempts reached, accepting logout');
+                                this._logoutRecoveryAttempted = false;
                                 this._clearSession();
                                 this.emit('auth_failure', 'LOGOUT');
                                 this.emit('disconnected', 'LOGOUT');
                             }
+                            // If not at max attempts yet, _silentReconnect failure will trigger
+                            // another connection.close event which re-enters this handler
                         }
-                    }, 2000);
+                    }, delay);
                     return;
                 }
 
-                // User logged out from phone - clear session so QR will show next time
-                console.log('baileys-adapter: Logged out from WhatsApp - clearing session');
+                // No creds or max attempts exhausted - accept logout
+                console.log('baileys-adapter: Accepting logout - clearing session');
                 this.clientInfo = null;
                 this.qrShownButNotScanned = false;
                 this._clearSession(); // Clear invalid session data
@@ -886,23 +951,10 @@ class BaileysAdapter extends BaseWhatsAppAdapter {
 
             this.connectionState = 'connecting';
 
-            // Get version for reconnection (use fallback to avoid 405 errors)
-            const FALLBACK_VERSION = [2, 3000, 1027934701];
-            let version;
-            try {
-                const versionInfo = await fetchLatestBaileysVersion();
-                version = versionInfo.version;
-                console.log(`baileys-adapter: Fetched WA version for reconnect: ${version.join('.')}`);
-            } catch (err) {
-                console.log('baileys-adapter: Could not fetch version, using fallback for reconnect');
-                version = FALLBACK_VERSION;
-            }
-            if (!version || version.length !== 3) {
-                version = FALLBACK_VERSION;
-            }
-
-            // Create new socket
-            console.log('baileys-adapter: Creating new socket with version:', version.join('.'));
+            // Fetch WhatsApp Web version with multiple fallback sources
+            const { version, source } = await fetchWAVersion(this.externalLogger);
+            console.log(`baileys-adapter: Using WA version for reconnect: ${version.join('.')} (source: ${source})`);
+            this.externalLogger?.info(`Baileys Adapter: Using WA version for reconnect: ${version.join('.')} (source: ${source})`);
             this.sock = makeWASocket({
                 version: version,
                 auth: {
@@ -1397,18 +1449,10 @@ class BaileysAdapter extends BaseWhatsAppAdapter {
             console.log(`baileys-adapter: Credentials valid for user ${this.state.creds.me.id}, creating new socket...`);
             this.connectionState = 'connecting';
 
-            // Get version
-            const FALLBACK_VERSION = [2, 3000, 1027934701];
-            let version;
-            try {
-                const versionInfo = await fetchLatestBaileysVersion();
-                version = versionInfo.version;
-            } catch (err) {
-                version = FALLBACK_VERSION;
-            }
-            if (!version || version.length !== 3) {
-                version = FALLBACK_VERSION;
-            }
+            // Fetch WhatsApp Web version with multiple fallback sources
+            const { version, source } = await fetchWAVersion(this.externalLogger);
+            console.log(`baileys-adapter: Using WA version for silent reconnect: ${version.join('.')} (source: ${source})`);
+            this.externalLogger?.info(`Baileys Adapter: Using WA version for silent reconnect: ${version.join('.')} (source: ${source})`);
 
             // Create new socket with existing credentials
             this.sock = makeWASocket({

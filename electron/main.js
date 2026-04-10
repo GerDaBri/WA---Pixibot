@@ -197,7 +197,7 @@ if (!gotTheLock) {
                 contextIsolation: true,
                 webSecurity: true, // Ensure web security is enabled
                 // Allow loading images from data URLs for QR codes
-                contentSecurityPolicy: "default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: app:; media-src 'self' file: app:; frame-src 'self' file: app:;",
+                contentSecurityPolicy: "default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file: https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: app:; media-src 'self' file: app:; frame-src 'self' file: app:; connect-src 'self' https://web.whatsapp.com https://raw.githubusercontent.com;",
             },
         });
 

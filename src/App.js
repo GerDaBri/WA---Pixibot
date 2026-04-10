@@ -85,10 +85,11 @@ function App() {
                 console.log("App.js: 'disconnected' event received with reason:", reason);
                 setQrCodeData(''); // Clear previous QR code
 
-                // Don't auto-reconnect on LOGOUT - user needs to scan QR again
+                // On LOGOUT - reinitialize client to generate new QR for re-authentication
                 if (reason === 'LOGOUT') {
-                    console.log("App.js: LOGOUT detected - not auto-reconnecting, user must re-authenticate");
-                    setSessionStatus('auth_failure');
+                    console.log("App.js: LOGOUT detected - reinitializing client for new QR code");
+                    setSessionStatus('initializing');
+                    handleReconnect();
                 } else {
                     console.log("App.js: Auto-reconnecting after disconnect");
                     handleReconnect(); // Automatically reconnect
